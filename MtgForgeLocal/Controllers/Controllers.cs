@@ -1,0 +1,105 @@
+using Microsoft.AspNetCore.Mvc;
+using MtgForgeLocal.Models;
+using MtgForgeLocal.Services;
+
+namespace MtgForgeLocal.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class DecksController : ControllerBase
+{
+    private readonly DeckGenerationService _generator;
+    private readonly MongoService _mongo;
+
+    private static readonly HashSet<string> ValidFormats = new(StringComparer.OrdinalIgnoreCase)
+        { "commander", "standard", "modern", "legacy", "pioneer", "pauper", "vintage" };
+
+    public DecksController(DeckGenerationService generator, MongoService mongo)
+    {
+        _generator = generator;
+        _mongo = mongo;
+    }
+
+    /// <summary>Generate a new deck</summary>
+    [HttpPost("generate")]
+    public async Task<ActionResult<DeckResponse>> Generate(
+        [FromBody] DeckRequest req,
+        CancellationToken ct)
+    {
+        var format = req.Format?.Trim().ToLowerInvariant() ?? "";
+        if (!ValidFormats.Contains(format))
+            return BadRequest($"Invalid format '{req.Format}'. Valid formats: {string.Join(", ", ValidFormats)}");
+
+        if (format == "commander" && string.IsNullOrWhiteSpace(req.Commander))
+            return BadRequest("Commander name is required for Commander format");
+
+        var deck = await _generator.GenerateDeckAsync(req, ct);
+        return Ok(deck);
+    }
+
+    /// <summary>Get all saved decks</summary>
+    [HttpGet]
+    public async Task<ActionResult<List<SavedDeck>>> GetAll(CancellationToken ct)
+    {
+        var decks = await _mongo.GetAllDecksAsync(ct);
+        return Ok(decks);
+    }
+
+    /// <summary>Get a specific saved deck</summary>
+    [HttpGet("{id}")]
+    public async Task<ActionResult<SavedDeck>> GetById(string id, CancellationToken ct)
+    {
+        var deck = await _mongo.GetDeckByIdAsync(id, ct);
+        return deck is null ? NotFound() : Ok(deck);
+    }
+
+    /// <summary>Delete a saved deck</summary>
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> Delete(string id, CancellationToken ct)
+    {
+        var deleted = await _mongo.DeleteDeckAsync(id, ct);
+        return deleted ? NoContent() : NotFound();
+    }
+}
+
+[ApiController]
+[Route("api/[controller]")]
+public class CardsController : ControllerBase
+{
+    private readonly CardSearchService _search;
+
+    public CardsController(CardSearchService search) => _search = search;
+
+    /// <summary>Semantic card search</summary>
+    [HttpPost("search")]
+    public async Task<ActionResult<List<CardSearchResult>>> Search(
+        [FromBody] CardSearchRequest req,
+        CancellationToken ct)
+    {
+        var results = await _search.SearchAsync(req, ct);
+        return Ok(results);
+    }
+}
+
+[ApiController]
+[Route("api/[controller]")]
+public class HealthController : ControllerBase
+{
+    private readonly OllamaService _ollama;
+
+    public HealthController(OllamaService ollama) => _ollama = ollama;
+
+    [HttpGet]
+    public async Task<IActionResult> Get(CancellationToken ct)
+    {
+        var ollamaOk = await _ollama.IsHealthyAsync(ct);
+        return Ok(new
+        {
+            status   = ollamaOk ? "healthy" : "degraded",
+            ollama   = ollamaOk ? "ok" : "unavailable — run: ollama pull llama3.1:8b",
+            mongodb  = "ok",
+            qdrant   = "ok",
+            timestamp = DateTime.UtcNow
+        });
+    }
+}

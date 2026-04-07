@@ -1,0 +1,30 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.vs/
+
+# Data files (large, downloaded at runtime)
+scripts/data/scryfall_oracle_cards.json
+scripts/data/mtgjson_uuid_names.json
+scripts/data/mtgjson_uuid_prices.json
+scripts/data/mtgjson_name_prices.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.swp
+*.swo

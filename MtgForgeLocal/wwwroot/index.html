@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MTG Forge Local</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --gold:     #c9a84c;
+      --gold-dim: #7a5f28;
+      --bg:       #0d0d0f;
+      --surface:  #161619;
+      --surface2: #1e1e23;
+      --border:   #2a2a32;
+      --text:     #e8dfc8;
+      --muted:    #7a7265;
+      --red:      #c0392b;
+      --green:    #27ae60;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Crimson Text', serif;
+      font-size: 17px;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--gold-dim);
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    header svg { width: 28px; height: 28px; fill: var(--gold); }
+    header h1 {
+      font-family: 'Cinzel', serif;
+      font-size: 1.4rem;
+      color: var(--gold);
+      letter-spacing: 0.08em;
+    }
+    .health-badge {
+      margin-left: auto;
+      font-size: 0.75rem;
+      font-family: monospace;
+      padding: 0.25rem 0.75rem;
+      border-radius: 20px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .health-badge.ok    { border-color: var(--green); color: var(--green); }
+    .health-badge.error { border-color: var(--red);   color: var(--red);   }
+
+    /* ── Layout ── */
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2rem;
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      gap: 2rem;
+      align-items: start;
+    }
+
+    /* ── Panels ── */
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+    }
+    .panel h2 {
+      font-family: 'Cinzel', serif;
+      font-size: 1rem;
+      color: var(--gold);
+      letter-spacing: 0.06em;
+      margin-bottom: 1.25rem;
+      padding-bottom: 0.6rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* ── Form ── */
+    .field { margin-bottom: 1rem; }
+    label {
+      display: block;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    input, select, textarea {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: 'Crimson Text', serif;
+      font-size: 1rem;
+      padding: 0.5rem 0.75rem;
+      transition: border-color 0.15s;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--gold-dim);
+    }
+    textarea { resize: vertical; min-height: 60px; }
+
+    .color-pips {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .pip {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      cursor: pointer;
+      font-size: 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+      user-select: none;
+    }
+    .pip:hover { transform: scale(1.1); }
+    .pip.active { border-color: var(--gold); box-shadow: 0 0 8px rgba(201,168,76,0.4); }
+    .pip[data-c="W"] { background: #f8f6e8; }
+    .pip[data-c="U"] { background: #1a6ab1; }
+    .pip[data-c="B"] { background: #2a2432; border-color: #6b5b6e; }
+    .pip[data-c="R"] { background: #c0392b; }
+    .pip[data-c="G"] { background: #1a7a3c; }
+    .pip[data-c="B"].active { border-color: #c9a84c; }
+
+    .slider-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    input[type="range"] {
+      flex: 1;
+      padding: 0;
+      border: none;
+      background: transparent;
+      accent-color: var(--gold);
+    }
+    .slider-val {
+      min-width: 2ch;
+      text-align: right;
+      color: var(--gold);
+      font-weight: 600;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 0.75rem;
+      background: linear-gradient(135deg, #7a5f28, #c9a84c);
+      border: none;
+      border-radius: 4px;
+      color: #0d0d0f;
+      font-family: 'Cinzel', serif;
+      font-size: 0.95rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+      margin-top: 0.5rem;
+    }
+    .btn:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-sm {
+      width: auto;
+      padding: 0.35rem 0.8rem;
+      font-size: 0.75rem;
+      margin-top: 0;
+    }
+    .btn-danger {
+      background: linear-gradient(135deg, #7a1f1f, #c0392b);
+      color: #fff;
+    }
+
+    /* ── Tabs ── */
+    .tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 1.25rem;
+    }
+    .tab {
+      padding: 0.5rem 1.25rem;
+      cursor: pointer;
+      font-family: 'Cinzel', serif;
+      font-size: 0.8rem;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+    }
+    .tab.active { color: var(--gold); border-color: var(--gold); }
+
+    /* ── Deck Output ── */
+    .loading {
+      text-align: center;
+      padding: 3rem;
+      color: var(--muted);
+    }
+    .loading-spinner {
+      width: 40px; height: 40px;
+      border: 3px solid var(--border);
+      border-top-color: var(--gold);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 1rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .reasoning-box {
+      background: var(--surface2);
+      border-left: 3px solid var(--gold-dim);
+      padding: 0.75rem 1rem;
+      margin-bottom: 1.5rem;
+      font-style: italic;
+      color: var(--text);
+      border-radius: 0 4px 4px 0;
+      font-size: 0.95rem;
+    }
+
+    .deck-section { margin-bottom: 1.5rem; }
+    .deck-section h3 {
+      font-family: 'Cinzel', serif;
+      font-size: 0.85rem;
+      color: var(--gold);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 0.6rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .count-badge {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.1rem 0.5rem;
+      font-size: 0.7rem;
+      color: var(--muted);
+    }
+    .card-row {
+      display: flex;
+      align-items: center;
+      padding: 0.35rem 0;
+      border-bottom: 1px solid var(--border);
+      gap: 0.5rem;
+      font-size: 0.95rem;
+    }
+    .card-row:last-child { border-bottom: none; }
+    .card-qty { color: var(--muted); min-width: 1.5ch; }
+    .card-name { flex: 1; }
+    .card-name a { color: var(--text); text-decoration: none; }
+    .card-name a:hover { color: var(--gold); }
+    .card-price { color: var(--muted); font-size: 0.85rem; min-width: 45px; text-align: right; }
+
+    .deck-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+      margin-top: 1rem;
+    }
+    .total-cost { font-size: 1.1rem; }
+    .total-cost strong { color: var(--gold); }
+
+    /* ── Library ── */
+    .deck-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 1rem;
+    }
+    .deck-tile {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1rem;
+      cursor: pointer;
+      transition: border-color 0.15s, transform 0.1s;
+    }
+    .deck-tile:hover {
+      border-color: var(--gold-dim);
+      transform: translateY(-2px);
+    }
+    .deck-tile h3 {
+      font-family: 'Cinzel', serif;
+      font-size: 0.9rem;
+      color: var(--gold);
+      margin-bottom: 0.4rem;
+    }
+    .deck-tile .meta {
+      font-size: 0.8rem;
+      color: var(--muted);
+      display: flex;
+      gap: 0.75rem;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 3rem;
+      color: var(--muted);
+      font-style: italic;
+    }
+
+    @media (max-width: 800px) {
+      main { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+    <path d="M14.5 2.5c0 1.5-1.5 7-1.5 7h-2S9 4 9 2.5a2.5 2.5 0 0 1 5 0zM12 11a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm-4.5 1.5L2 15l4 7 3-2-1.5-7.5zM16.5 12.5L22 15l-4 7-3-2 1.5-7.5z"/>
+  </svg>
+  <h1>MTG Forge Local</h1>
+  <div class="health-badge" id="healthBadge" onclick="checkHealth()">⬤ checking...</div>
+</header>
+
+<main>
+  <!-- ── Left: Forge Form ── -->
+  <div class="panel">
+    <h2>⚔ Forge a Deck</h2>
+
+    <div class="field">
+      <label>Commander</label>
+      <input id="commander" type="text" placeholder="e.g. Meren of Clan Nel Toth" />
+    </div>
+
+    <div class="field">
+      <label>Theme / Strategy</label>
+      <input id="theme" type="text" placeholder="e.g. sacrifice and reanimation" />
+    </div>
+
+    <div class="field">
+      <label>Color Identity</label>
+      <div class="color-pips">
+        <div class="pip" data-c="W" title="White">☀</div>
+        <div class="pip" data-c="U" title="Blue">💧</div>
+        <div class="pip active" data-c="B" title="Black">💀</div>
+        <div class="pip active" data-c="R" title="Red">🔥</div>
+        <div class="pip active" data-c="G" title="Green">🌲</div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Budget (USD)</label>
+      <input id="budget" type="number" value="50" min="10" max="500" step="5" />
+    </div>
+
+    <div class="field">
+      <label>Power Level</label>
+      <div class="slider-row">
+        <input id="powerLevel" type="range" min="1" max="10" value="6"
+               oninput="document.getElementById('plVal').textContent=this.value" />
+        <span class="slider-val" id="plVal">6</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Notes (optional)</label>
+      <textarea id="notes" placeholder="e.g. avoid infinite combos, focus on creature-based wins"></textarea>
+    </div>
+
+    <button class="btn" id="generateBtn" onclick="generateDeck()">
+      ✦ Generate Deck
+    </button>
+  </div>
+
+  <!-- ── Right: Output ── -->
+  <div class="panel">
+    <div class="tabs">
+      <div class="tab active" onclick="showTab('forge')">Forge</div>
+      <div class="tab" onclick="showTab('library')">Library</div>
+    </div>
+
+    <div id="tab-forge">
+      <div id="deckOutput">
+        <div class="empty-state">
+          Configure your deck parameters and click Generate to begin.
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-library" style="display:none">
+      <div id="libraryGrid" class="deck-grid">
+        <div class="empty-state">Loading saved decks...</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+  const API = '';  // Same origin
+
+  // ── Color Pips ──────────────────────────────────────────────────────────────
+  document.querySelectorAll('.pip').forEach(pip => {
+    pip.addEventListener('click', () => pip.classList.toggle('active'));
+  });
+
+  function getSelectedColors() {
+    return [...document.querySelectorAll('.pip.active')].map(p => p.dataset.c);
+  }
+
+  // ── Tabs ────────────────────────────────────────────────────────────────────
+  function showTab(name) {
+    document.querySelectorAll('.tab').forEach((t, i) => {
+      t.classList.toggle('active', ['forge','library'][i] === name);
+    });
+    document.getElementById('tab-forge').style.display   = name === 'forge'   ? '' : 'none';
+    document.getElementById('tab-library').style.display = name === 'library' ? '' : 'none';
+    if (name === 'library') loadLibrary();
+  }
+
+  // ── Health Check ────────────────────────────────────────────────────────────
+  async function checkHealth() {
+    const badge = document.getElementById('healthBadge');
+    badge.textContent = '⬤ checking...';
+    badge.className = 'health-badge';
+    try {
+      const r = await fetch(`${API}/api/health`);
+      const d = await r.json();
+      const ok = d.status === 'healthy';
+      badge.textContent = ok ? '⬤ healthy' : '⬤ degraded';
+      badge.className = 'health-badge ' + (ok ? 'ok' : 'error');
+    } catch {
+      badge.textContent = '⬤ offline';
+      badge.className = 'health-badge error';
+    }
+  }
+
+  // ── Generate Deck ────────────────────────────────────────────────────────────
+  async function generateDeck() {
+    const btn = document.getElementById('generateBtn');
+    const out = document.getElementById('deckOutput');
+
+    btn.disabled = true;
+    btn.textContent = 'Forging...';
+    out.innerHTML = `
+      <div class="loading">
+        <div class="loading-spinner"></div>
+        <div>Searching card pool and generating deck…</div>
+        <div style="margin-top:.5rem;font-size:.85rem;color:var(--muted)">
+          This may take 30–90 seconds with a local LLM
+        </div>
+      </div>`;
+
+    const payload = {
+      commander:    document.getElementById('commander').value,
+      theme:        document.getElementById('theme').value,
+      colorIdentity: getSelectedColors(),
+      budget:       parseFloat(document.getElementById('budget').value),
+      powerLevel:   parseInt(document.getElementById('powerLevel').value),
+      extraContext: document.getElementById('notes').value || null
+    };
+
+    try {
+      const r = await fetch(`${API}/api/decks/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!r.ok) {
+        const err = await r.text();
+        throw new Error(err);
+      }
+
+      const deck = await r.json();
+      renderDeck(deck, out);
+    } catch (e) {
+      out.innerHTML = `<div class="empty-state" style="color:var(--red)">
+        Error: ${e.message}<br/><small>Is Ollama running? Try: ollama serve</small>
+      </div>`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '✦ Generate Deck';
+    }
+  }
+
+  function renderDeck(deck, container) {
+    const totalCards = deck.sections.reduce(
+      (sum, s) => sum + s.cards.reduce((a, c) => a + c.quantity, 0), 0
+    );
+
+    container.innerHTML = `
+      <div class="reasoning-box">${deck.reasoning}</div>
+      ${deck.sections.map(section => `
+        <div class="deck-section">
+          <h3>${section.category}
+            <span class="count-badge">${section.cards.reduce((a,c)=>a+c.quantity,0)}</span>
+          </h3>
+          ${section.cards.map(card => `
+            <div class="card-row">
+              <span class="card-qty">${card.quantity}x</span>
+              <span class="card-name">
+                ${card.scryfallUri
+                  ? `<a href="${card.scryfallUri}" target="_blank">${card.name}</a>`
+                  : card.name}
+              </span>
+              <span class="card-price">${card.priceUsd > 0 ? '$' + card.priceUsd.toFixed(2) : '—'}</span>
+            </div>
+          `).join('')}
+        </div>
+      `).join('')}
+      <div class="deck-footer">
+        <div class="total-cost">
+          ${totalCards} cards · Est. <strong>$${deck.estimatedCost.toFixed(2)}</strong>
+        </div>
+        <div style="color:var(--muted);font-size:.8rem">
+          ${new Date(deck.generatedAt).toLocaleString()}
+        </div>
+      </div>`;
+  }
+
+  // ── Library ──────────────────────────────────────────────────────────────────
+  async function loadLibrary() {
+    const grid = document.getElementById('libraryGrid');
+    try {
+      const r = await fetch(`${API}/api/decks`);
+      const decks = await r.json();
+      if (!decks.length) {
+        grid.innerHTML = '<div class="empty-state">No saved decks yet. Forge one!</div>';
+        return;
+      }
+      grid.innerHTML = decks.map(d => `
+        <div class="deck-tile" onclick="viewDeck('${d.id}')">
+          <h3>${d.commander}</h3>
+          <div style="color:var(--muted);font-size:.85rem;margin-bottom:.4rem">${d.theme}</div>
+          <div class="meta">
+            <span>$${d.estimatedCost.toFixed(2)}</span>
+            <span>PL ${d.powerLevel}</span>
+            <span>${d.colorIdentity?.join('') || '?'}</span>
+          </div>
+          <div style="color:var(--muted);font-size:.75rem;margin-top:.4rem">
+            ${new Date(d.createdAt).toLocaleDateString()}
+          </div>
+        </div>
+      `).join('');
+    } catch {
+      grid.innerHTML = '<div class="empty-state" style="color:var(--red)">Failed to load library</div>';
+    }
+  }
+
+  async function viewDeck(id) {
+    showTab('forge');
+    const out = document.getElementById('deckOutput');
+    out.innerHTML = '<div class="loading"><div class="loading-spinner"></div></div>';
+    const r = await fetch(`${API}/api/decks/${id}`);
+    const deck = await r.json();
+    renderDeck(deck, out);
+  }
+
+  // ── Init ────────────────────────────────────────────────────────────────────
+  checkHealth();
+</script>
+</body>
+</html>

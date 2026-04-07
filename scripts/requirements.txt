@@ -1,0 +1,19 @@
+# ── Ingestion pipeline ────────────────────────────────────────────────────────
+requests>=2.31.0
+ijson>=3.2.0              # Streaming JSON parser for large MTGJSON files (AllPrintings, AllPricesToday)
+pymongo>=4.6.0
+qdrant-client>=1.7.0
+sentence-transformers>=2.3.0
+tqdm>=4.66.0
+
+# ── Training data export ──────────────────────────────────────────────────────
+datasets>=2.18.0          # HuggingFace datasets (also needed for fine-tuning)
+
+# ── Fine-tuning (optional — only needed if running finetune.py) ───────────────
+# Install these separately when ready to fine-tune:
+#   pip install unsloth trl transformers accelerate
+#
+# Unsloth note: on Apple Silicon install via:
+#   pip install unsloth
+# (It auto-detects MPS — no CUDA needed)
+
