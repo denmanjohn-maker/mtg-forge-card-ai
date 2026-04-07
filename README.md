@@ -1,4 +1,4 @@
-# MTG Forge Local
+dock# MTG Forge Local
 > Full-stack Commander deck generator using a local LLM (Ollama), MongoDB, and Qdrant vector search.
 > Optimized for Apple Silicon (M2) — no cloud API required after initial setup.
 
