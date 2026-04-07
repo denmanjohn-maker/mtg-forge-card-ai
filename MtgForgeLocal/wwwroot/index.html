@@ -338,6 +338,19 @@
     <h2>⚔ Forge a Deck</h2>
 
     <div class="field">
+      <label>Format</label>
+      <select id="format" onchange="onFormatChange()">
+        <option value="commander">Commander</option>
+        <option value="standard">Standard</option>
+        <option value="modern">Modern</option>
+        <option value="pioneer">Pioneer</option>
+        <option value="legacy">Legacy</option>
+        <option value="vintage">Vintage</option>
+        <option value="pauper">Pauper</option>
+      </select>
+    </div>
+
+    <div class="field" id="commanderField">
       <label>Commander</label>
       <input id="commander" type="text" placeholder="e.g. Meren of Clan Nel Toth" />
     </div>
@@ -417,6 +430,12 @@
     return [...document.querySelectorAll('.pip.active')].map(p => p.dataset.c);
   }
 
+  // ── Format Change ────────────────────────────────────────────────────────────
+  function onFormatChange() {
+    const isCommander = document.getElementById('format').value === 'commander';
+    document.getElementById('commanderField').style.display = isCommander ? '' : 'none';
+  }
+
   // ── Tabs ────────────────────────────────────────────────────────────────────
   function showTab(name) {
     document.querySelectorAll('.tab').forEach((t, i) => {
@@ -460,8 +479,10 @@
         </div>
       </div>`;
 
+    const format = document.getElementById('format').value;
     const payload = {
-      commander:    document.getElementById('commander').value,
+      format:       format,
+      commander:    format === 'commander' ? document.getElementById('commander').value : null,
       theme:        document.getElementById('theme').value,
       colorIdentity: getSelectedColors(),
       budget:       parseFloat(document.getElementById('budget').value),
