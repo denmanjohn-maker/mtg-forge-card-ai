@@ -105,7 +105,6 @@ public class CardIngestionService
     private async Task<List<MtgCard>> DownloadScryfallCardsAsync(CancellationToken ct)
     {
         var http = _httpClientFactory.CreateClient("Scryfall");
-        http.Timeout = TimeSpan.FromMinutes(5);
 
         // Get bulk data index
         var bulkResponse = await http.GetFromJsonAsync<ScryfallBulkDataResponse>(
@@ -312,10 +311,9 @@ public class CardIngestionService
     private class ScryfallBulkDataEntry
     {
         public string Type { get; set; } = "";
-        public string DownloadUri { get; set; } = "";
 
         [System.Text.Json.Serialization.JsonPropertyName("download_uri")]
-        public string DownloadUriSnake { set => DownloadUri = value; }
+        public string DownloadUri { get; set; } = "";
     }
 
     private class ScryfallCard

@@ -71,11 +71,14 @@ public class MongoService
 
     // ─── Card Ingestion ───────────────────────────────────────────────────────
 
-    public async Task<int> BulkUpsertCardsAsync(List<MtgCard> cards, CancellationToken ct = default)
-    {
-        var collection = _db.GetCollection<MtgCard>("cards");
+    private bool _indexesEnsured;
 
-        // Ensure indexes
+    /// <summary>Ensures card indexes exist. Called once per application lifetime.</summary>
+    private async Task EnsureCardIndexesAsync(CancellationToken ct)
+    {
+        if (_indexesEnsured) return;
+
+        var collection = _db.GetCollection<MtgCard>("cards");
         var indexKeys = Builders<MtgCard>.IndexKeys;
         await collection.Indexes.CreateManyAsync([
             new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.ScryfallId),
@@ -83,6 +86,16 @@ public class MongoService
             new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.Name)),
             new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.ColorIdentity))
         ], ct);
+
+        _indexesEnsured = true;
+    }
+
+    public async Task<int> BulkUpsertCardsAsync(List<MtgCard> cards, CancellationToken ct = default)
+    {
+        var collection = _db.GetCollection<MtgCard>("cards");
+
+        // Ensure indexes (idempotent — MongoDB skips existing indexes)
+        await EnsureCardIndexesAsync(ct);
 
         int upserted = 0;
         const int batchSize = 50;

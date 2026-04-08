@@ -30,7 +30,10 @@ builder.Services.AddHttpClient<OllamaService>();
 builder.Services.AddHttpClient<OllamaEmbedService>();
 
 // Scryfall — HttpClient for card ingestion
-builder.Services.AddHttpClient("Scryfall");
+builder.Services.AddHttpClient("Scryfall", client =>
+{
+    client.Timeout = TimeSpan.FromMinutes(5);
+});
 
 // Application services
 builder.Services.AddScoped<OllamaEmbedService>();
