@@ -5,10 +5,7 @@
 Full-stack Commander deck generator running entirely locally (no cloud APIs after setup):
 
 ```
-Browser (wwwroot/index.html)
-    │
-    ▼
-.NET 8 ASP.NET Core API (port 5000)
+.NET 10 ASP.NET Core API (port 5000)
     ├──► MongoDB (port 27017)     — card catalog + saved decks
     ├──► Qdrant (port 6333/6334)  — vector embeddings for semantic card search
     └──► Ollama (port 11434)      — local LLM (llama3.1:8b) + embeddings (all-minilm)
@@ -34,7 +31,7 @@ Python scripts/
 
 - `scripts/ingest_cards.py` uses `all-MiniLM-L6-v2` via sentence-transformers → **384-dim**
 - `MtgForgeLocal/Services/OllamaEmbedService.cs` uses Ollama's `all-minilm` → **384-dim**
-- `appsettings.json` currently sets `"EmbedModel": "nomic-embed-text"` (768-dim) — **this will break search** unless you also re-run ingestion with `nomic-embed-text`
+- `appsettings.json` sets `"EmbedModel": "all-minilm"` (384-dim) — matches the Python ingestion script
 
 If you change the embed model in either place, you must change both and re-run ingestion.
 
@@ -87,8 +84,9 @@ python ingest_cards.py --qdrant-only # skip MongoDB
 
 ### Service Registration
 - `MongoService` and `QdrantClient` → **Singleton** (registered in `Program.cs`)
-- `OllamaService`, `OllamaEmbedService`, `CardSearchService`, `DeckGenerationService` → **Scoped**
+- `OllamaService`, `OllamaEmbedService`, `CardSearchService`, `DeckGenerationService`, `CardIngestionService` → **Scoped**
 - `OllamaService` and `OllamaEmbedService` each get their own named `HttpClient` via `AddHttpClient<T>()`
+- A named `"Scryfall"` `HttpClient` (5-minute timeout) is registered for `CardIngestionService`
 
 ### Models
 - **Request/response DTOs** use C# `record` types (`DeckRequest`, `DeckResponse`, `CardSearchResult`, etc.)
@@ -104,11 +102,11 @@ All external service URLs/credentials come from `appsettings.json` (or environme
 ### Qdrant Payload Fields
 Filterable fields stored in Qdrant (set by `ingest_cards.py::build_payload`):
 - `color_identity` (array of color strings: `"B"`, `"G"`, etc.)
-- `legality_commander` (`"legal"` or `"not_legal"`)
+- `legality_commander`, `legality_standard`, `legality_modern`, `legality_legacy`, `legality_pioneer`, `legality_pauper`, `legality_vintage` (each `"legal"` or `"not_legal"`)
 - `price_usd` (float)
 - `type_line`, `name`, `oracle_text`, `mana_cost`, `cmc`, `image_uri`, `scryfall_uri`
 
-The Qdrant collection `mtg_cards` contains **only commander-legal cards** (filtered during ingestion).
+The Qdrant collection `mtg_cards` stores cards for all supported formats. Cards are filtered by the appropriate legality field at query time.
 
 ### LLM Response Parsing
 The LLM is prompted to return pure JSON. `ParseDeckResponse` defensively:

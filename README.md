@@ -10,8 +10,8 @@
 MtgDeckForge App
     │
     ▼
-.NET 8 API  ──►  Ollama (local LLM + embeddings)
-    │               mistral / all-minilm
+.NET 10 API  ──►  Ollama (local LLM + embeddings)
+    │                mistral / all-minilm
     ├──►  MongoDB (card catalog + saved decks)
     └──►  Qdrant  (vector search — semantic card retrieval)
 ```
@@ -27,7 +27,7 @@ Card ingestion can be done via:
 | Tool | Install |
 |---|---|
 | Docker Desktop | https://www.docker.com/products/docker-desktop/ |
-| .NET 8 SDK | https://dotnet.microsoft.com/download/dotnet/8 |
+| .NET 10 SDK | https://dotnet.microsoft.com/download/dotnet/10 |
 | Ollama | https://ollama.com/download |
 | Python 3.11+ (optional) | https://www.python.org/downloads/ |
 
@@ -135,8 +135,8 @@ Or with Docker:
 docker compose up mtgforge
 ```
 
-API available at: http://localhost:5000
-Swagger UI: http://localhost:5000/swagger
+> **Note:** When running via Docker, the API is exposed on port **5001** (mapped from internal port 8080):
+> http://localhost:5001 / Swagger UI: http://localhost:5001/swagger
 
 ---
 
