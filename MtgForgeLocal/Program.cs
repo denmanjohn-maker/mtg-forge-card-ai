@@ -29,6 +29,9 @@ builder.Services.AddSingleton(sp =>
 builder.Services.AddHttpClient<OllamaService>();
 builder.Services.AddHttpClient<OllamaEmbedService>();
 
+// Scryfall — HttpClient for card ingestion
+builder.Services.AddHttpClient("Scryfall");
+
 // Application services
 builder.Services.AddScoped<OllamaEmbedService>();
 builder.Services.AddScoped<OllamaService>();

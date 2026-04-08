@@ -1,4 +1,4 @@
-dock# MTG Forge Local
+# MTG Forge Local
 > Card API and deck generator using a local LLM (Ollama), MongoDB, and Qdrant vector search.
 > Accepts requests from the main MtgDeckForge app — no frontend included.
 

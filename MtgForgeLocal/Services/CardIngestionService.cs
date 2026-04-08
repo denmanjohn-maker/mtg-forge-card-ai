@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
-using MongoDB.Driver;
 using MtgForgeLocal.Models;
 using Qdrant.Client;
 using Qdrant.Client.Grpc;
@@ -14,7 +15,7 @@ namespace MtgForgeLocal.Services;
 /// Pipeline:
 ///   1. Fetch Scryfall bulk-data index → get oracle_cards download URI
 ///   2. Stream-download and deserialize all oracle cards
-///   3. Upsert cards into MongoDB
+///   3. Upsert cards into MongoDB (via MongoService)
 ///   4. Embed card text via Ollama and upsert vectors into Qdrant
 /// </summary>
 public class CardIngestionService
@@ -22,8 +23,8 @@ public class CardIngestionService
     private readonly MongoService _mongo;
     private readonly QdrantClient _qdrant;
     private readonly OllamaEmbedService _embedder;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<CardIngestionService> _logger;
-    private readonly IConfiguration _config;
 
     private const string QdrantCollection = "mtg_cards";
     private const int BatchSize = 50; // Smaller batch for embedding via Ollama (slower than local model)
@@ -35,14 +36,14 @@ public class CardIngestionService
         MongoService mongo,
         QdrantClient qdrant,
         OllamaEmbedService embedder,
-        ILogger<CardIngestionService> logger,
-        IConfiguration config)
+        IHttpClientFactory httpClientFactory,
+        ILogger<CardIngestionService> logger)
     {
         _mongo = mongo;
         _qdrant = qdrant;
         _embedder = embedder;
+        _httpClientFactory = httpClientFactory;
         _logger = logger;
-        _config = config;
     }
 
     /// <summary>
@@ -73,7 +74,7 @@ public class CardIngestionService
         if (!qdrantOnly)
         {
             _logger.LogInformation("Upserting {Count} cards into MongoDB...", cards.Count);
-            result.MongoCardsUpserted = await UpsertToMongoAsync(cards, ct);
+            result.MongoCardsUpserted = await _mongo.BulkUpsertCardsAsync(cards, ct);
             _logger.LogInformation("MongoDB: {Count} cards upserted", result.MongoCardsUpserted);
         }
 
@@ -103,7 +104,8 @@ public class CardIngestionService
 
     private async Task<List<MtgCard>> DownloadScryfallCardsAsync(CancellationToken ct)
     {
-        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        var http = _httpClientFactory.CreateClient("Scryfall");
+        http.Timeout = TimeSpan.FromMinutes(5);
 
         // Get bulk data index
         var bulkResponse = await http.GetFromJsonAsync<ScryfallBulkDataResponse>(
@@ -157,52 +159,18 @@ public class CardIngestionService
         Legalities = sc.Legalities ?? new Dictionary<string, string>()
     };
 
-    // ─── MongoDB Upsert ───────────────────────────────────────────────────────
-
-    private async Task<int> UpsertToMongoAsync(List<MtgCard> cards, CancellationToken ct)
-    {
-        var connStr = _config["MongoDB:ConnectionString"] ?? "mongodb://admin:password@localhost:27017";
-        var dbName = _config["MongoDB:DatabaseName"] ?? "mtgforge";
-        var client = new MongoClient(connStr);
-        var db = client.GetDatabase(dbName);
-        var collection = db.GetCollection<MtgCard>("cards");
-
-        // Ensure indexes
-        var indexKeys = Builders<MtgCard>.IndexKeys;
-        await collection.Indexes.CreateManyAsync([
-            new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.ScryfallId),
-                new CreateIndexOptions { Unique = true }),
-            new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.Name)),
-            new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.ColorIdentity))
-        ], ct);
-
-        int upserted = 0;
-        for (int i = 0; i < cards.Count; i += BatchSize)
-        {
-            var batch = cards.Skip(i).Take(BatchSize).ToList();
-            var ops = batch.Select(card =>
-                new ReplaceOneModel<MtgCard>(
-                    Builders<MtgCard>.Filter.Eq(c => c.ScryfallId, card.ScryfallId),
-                    card)
-                { IsUpsert = true }
-            ).ToList();
-
-            try
-            {
-                var result = await collection.BulkWriteAsync(ops, cancellationToken: ct);
-                upserted += (int)(result.Upserts.Count + result.ModifiedCount);
-            }
-            catch (MongoBulkWriteException<MtgCard> ex)
-            {
-                _logger.LogWarning("MongoDB batch write warning: {Message}", ex.Message);
-                upserted += batch.Count;
-            }
-        }
-
-        return upserted;
-    }
-
     // ─── Qdrant Embed + Upsert ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Generates a stable, collision-resistant point ID from a Scryfall UUID string.
+    /// Uses SHA-256 to produce a deterministic 64-bit hash, avoiding collisions
+    /// that can occur with GetHashCode() % modulo approaches.
+    /// </summary>
+    private static ulong StablePointId(string scryfallId)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(scryfallId));
+        return BitConverter.ToUInt64(hash, 0);
+    }
 
     private async Task<int> EmbedAndUpsertToQdrantAsync(List<MtgCard> cards, CancellationToken ct)
     {
@@ -233,7 +201,7 @@ public class CardIngestionService
                     continue;
                 }
 
-                var pointId = (ulong)(Math.Abs((long)card.ScryfallId.GetHashCode()) % (1L << 63));
+                var pointId = StablePointId(card.ScryfallId);
                 var payload = BuildPayload(card);
 
                 points.Add(new PointStruct

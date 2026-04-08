@@ -68,4 +68,46 @@ public class MongoService
         var result = await col.DeleteOneAsync(d => d.Id == id, ct);
         return result.DeletedCount > 0;
     }
+
+    // ─── Card Ingestion ───────────────────────────────────────────────────────
+
+    public async Task<int> BulkUpsertCardsAsync(List<MtgCard> cards, CancellationToken ct = default)
+    {
+        var collection = _db.GetCollection<MtgCard>("cards");
+
+        // Ensure indexes
+        var indexKeys = Builders<MtgCard>.IndexKeys;
+        await collection.Indexes.CreateManyAsync([
+            new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.ScryfallId),
+                new CreateIndexOptions { Unique = true }),
+            new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.Name)),
+            new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.ColorIdentity))
+        ], ct);
+
+        int upserted = 0;
+        const int batchSize = 50;
+        for (int i = 0; i < cards.Count; i += batchSize)
+        {
+            var batch = cards.Skip(i).Take(batchSize).ToList();
+            var ops = batch.Select(card =>
+                new ReplaceOneModel<MtgCard>(
+                    Builders<MtgCard>.Filter.Eq(c => c.ScryfallId, card.ScryfallId),
+                    card)
+                { IsUpsert = true }
+            ).ToList();
+
+            try
+            {
+                var result = await collection.BulkWriteAsync(ops, cancellationToken: ct);
+                upserted += (int)(result.Upserts.Count + result.ModifiedCount);
+            }
+            catch (MongoBulkWriteException<MtgCard> ex)
+            {
+                _logger.LogWarning("MongoDB batch write warning: {Message}", ex.Message);
+                upserted += batch.Count;
+            }
+        }
+
+        return upserted;
+    }
 }
