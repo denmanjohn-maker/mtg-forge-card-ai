@@ -51,14 +51,19 @@ public class CardSearchService
 
         // Build Qdrant filter conditions
         var conditions = new List<Condition>();
+        var mustNotConditions = new List<Condition>();
 
         if (req.Colors?.Count > 0)
         {
-            // Color identity must be a subset of the requested colors
-            // e.g., for Golgari (B, G) we allow B, G, BG cards
-            foreach (var color in req.Colors)
+            // Color identity must be a subset of the requested colors.
+            // e.g., for Golgari (B, G) we allow colorless, mono-B, mono-G, and B/G cards.
+            // We exclude any card whose color_identity contains a color NOT in the request.
+            var allColors = new[] { "W", "U", "B", "R", "G" };
+            var excluded = allColors.Except(req.Colors, StringComparer.OrdinalIgnoreCase).ToList();
+
+            foreach (var color in excluded)
             {
-                conditions.Add(new Condition
+                mustNotConditions.Add(new Condition
                 {
                     Field = new FieldCondition
                     {
@@ -94,9 +99,15 @@ public class CardSearchService
             }
         });
 
-        var filter = conditions.Count > 0
-            ? new Filter { Must = { conditions } }
-            : null;
+        Filter? filter = null;
+        if (conditions.Count > 0 || mustNotConditions.Count > 0)
+        {
+            filter = new Filter();
+            if (conditions.Count > 0)
+                filter.Must.AddRange(conditions);
+            if (mustNotConditions.Count > 0)
+                filter.MustNot.AddRange(mustNotConditions);
+        }
 
         _logger.LogInformation("Searching Qdrant for: {Query} (limit={Limit})", req.Query, req.Limit);
 

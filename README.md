@@ -1,23 +1,24 @@
 dock# MTG Forge Local
-> Full-stack Commander deck generator using a local LLM (Ollama), MongoDB, and Qdrant vector search.
-> Optimized for Apple Silicon (M2) — no cloud API required after initial setup.
+> Card API and deck generator using a local LLM (Ollama), MongoDB, and Qdrant vector search.
+> Accepts requests from the main MtgDeckForge app — no frontend included.
 
 ---
 
 ## Architecture
 
 ```
-Browser (index.html)
+MtgDeckForge App
     │
     ▼
 .NET 8 API  ──►  Ollama (local LLM, Metal GPU)
-    │               llama3.1:8b
+    │               llama3.1:8b / mistral
     ├──►  MongoDB (card catalog + saved decks)
     └──►  Qdrant  (vector search — semantic card retrieval)
-
-Python scripts
-    └──►  Scryfall API → MongoDB + Qdrant (one-time ingestion)
 ```
+
+Card ingestion can be done via:
+- **Admin API endpoint**: `POST /api/admin/ingest` (recommended — no Python needed)
+- **Python script**: `scripts/ingest_cards.py` (for local development)
 
 ---
 
@@ -27,8 +28,8 @@ Python scripts
 |---|---|
 | Docker Desktop | https://www.docker.com/products/docker-desktop/ |
 | .NET 8 SDK | https://dotnet.microsoft.com/download/dotnet/8 |
-| Python 3.11+ | https://www.python.org/downloads/ |
 | Ollama | https://ollama.com/download |
+| Python 3.11+ (optional) | https://www.python.org/downloads/ |
 
 ---
 
@@ -71,6 +72,34 @@ curl http://localhost:11434/api/tags
 
 ## Step 3 — Ingest Card Data
 
+### Option A: Admin API Endpoint (recommended)
+
+After starting the .NET API (Step 4), trigger ingestion via the admin endpoint:
+
+```bash
+# Full ingestion (~27k cards — takes 5-30 min depending on embedding speed)
+curl -X POST http://localhost:5000/api/admin/ingest \
+  -H "Content-Type: application/json" \
+  -d '{}'
+
+# Quick test with 1000 cards
+curl -X POST http://localhost:5000/api/admin/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"limit": 1000}'
+
+# MongoDB only (skip Qdrant embedding)
+curl -X POST http://localhost:5000/api/admin/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"mongoOnly": true}'
+
+# Qdrant only (skip MongoDB)
+curl -X POST http://localhost:5000/api/admin/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"qdrantOnly": true}'
+```
+
+### Option B: Python Script (local development)
+
 ```bash
 cd scripts
 
@@ -87,10 +116,10 @@ python ingest_cards.py --limit 1000
 python ingest_cards.py --skip-download
 ```
 
-The script will:
+The ingestion pipeline will:
 1. Download Scryfall oracle card bulk data (~80MB)
 2. Store all cards in MongoDB
-3. Embed commander-legal cards into Qdrant using `all-MiniLM-L6-v2`
+3. Embed format-legal cards into Qdrant using the configured embedding model
 
 ---
 
@@ -111,9 +140,21 @@ Swagger UI: http://localhost:5000/swagger
 
 ---
 
-## Step 5 — Open the UI
+## Embedding Model Alignment
 
-Navigate to: http://localhost:5000
+**CRITICAL**: The embedding model used for ingestion and the model used for search queries
+must produce the same vector dimensions. A mismatch will cause search failures.
+
+| Component | Model | Dimensions |
+|---|---|---|
+| Python ingestion (`ingest_cards.py`) | `all-MiniLM-L6-v2` | 384 |
+| Admin API ingestion (`/api/admin/ingest`) | Ollama `all-minilm` | 384 |
+| .NET search queries (`OllamaEmbedService`) | Ollama `all-minilm` | 384 |
+
+If you change the embedding model in `appsettings.json` (e.g. to `nomic-embed-text` at 768-dim),
+you **must**:
+1. Delete the Qdrant collection: `curl -X DELETE http://localhost:6333/collections/mtg_cards`
+2. Re-run ingestion using the same model to recreate the collection with correct dimensions
 
 ---
 
@@ -124,6 +165,7 @@ Navigate to: http://localhost:5000
 curl -X POST http://localhost:5000/api/decks/generate \
   -H "Content-Type: application/json" \
   -d '{
+    "format": "commander",
     "commander": "Meren of Clan Nel Toth",
     "theme": "sacrifice and reanimation",
     "colorIdentity": ["B", "G"],
@@ -153,6 +195,13 @@ curl http://localhost:5000/api/decks
 ### Health Check
 ```bash
 curl http://localhost:5000/api/health
+```
+
+### Ingest Cards (Admin)
+```bash
+curl -X POST http://localhost:5000/api/admin/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"limit": 1000}'
 ```
 
 ---
@@ -216,6 +265,18 @@ curl http://localhost:6333/healthz
 **MongoDB auth error:**
 ```bash
 # Check connection string in appsettings.json matches docker-compose.yml credentials
+```
+
+**Embedding dimension mismatch (search returns no results):**
+```bash
+# If you changed the embedding model, delete the Qdrant collection and re-ingest:
+curl -X DELETE http://localhost:6333/collections/mtg_cards
+
+# Then re-run ingestion via API:
+curl -X POST http://localhost:5000/api/admin/ingest -H "Content-Type: application/json" -d '{}'
+
+# Or via Python script:
+cd scripts && python ingest_cards.py
 ```
 
 **Ingestion fails on embedding:**

@@ -34,6 +34,7 @@ builder.Services.AddScoped<OllamaEmbedService>();
 builder.Services.AddScoped<OllamaService>();
 builder.Services.AddScoped<CardSearchService>();
 builder.Services.AddScoped<DeckGenerationService>();
+builder.Services.AddScoped<CardIngestionService>();
 
 // CORS — open for local dev
 builder.Services.AddCors(options =>
@@ -50,10 +51,6 @@ app.UseSwagger();
 app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "MTG Forge Local v1"));
 
 app.UseCors();
-app.UseStaticFiles();
 app.MapControllers();
-
-// Serve frontend SPA from wwwroot
-app.MapFallbackToFile("index.html");
 
 app.Run();

@@ -6,17 +6,18 @@ namespace MtgForgeLocal.Services;
 
 /// <summary>
 /// Generates text embeddings using Ollama's local embedding endpoint.
-/// Uses nomic-embed-text which produces 768-dim vectors and runs fast on M2.
+/// Uses all-minilm which produces 384-dim vectors (matching the Python
+/// ingestion script's all-MiniLM-L6-v2).
 ///
-/// IMPORTANT: The ingestion pipeline (Python) uses all-MiniLM-L6-v2 (384-dim).
-/// If you change the embed model here you must re-run the ingestion script.
-/// Both models must produce the same vector dimensions.
+/// IMPORTANT: The embedding model must match between ingestion and search.
+/// If you change the embed model, you must delete the Qdrant collection and
+/// re-run ingestion. Both the ingestion pipeline and this service must
+/// produce the same vector dimensions.
 ///
-/// To use nomic-embed-text with the Python script, update EMBED_MODEL in
-/// ingest_cards.py to match and re-run ingestion.
-///
-/// Easiest approach: keep Python using all-MiniLM-L6-v2 and use
-/// Ollama's version of the same model: "ollama pull all-minilm"
+/// Current alignment:
+///   - Python ingestion: all-MiniLM-L6-v2 (384-dim)
+///   - Admin API ingestion: Ollama all-minilm (384-dim)
+///   - This service (search): Ollama all-minilm (384-dim)
 /// </summary>
 public class OllamaEmbedService
 {
