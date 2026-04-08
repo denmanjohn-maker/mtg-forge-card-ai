@@ -100,9 +100,9 @@ public class OllamaService
         using var stream = await response.Content.ReadAsStreamAsync(ct);
         using var reader = new System.IO.StreamReader(stream);
 
-        while (!reader.EndOfStream && !ct.IsCancellationRequested)
+        string? line;
+        while ((line = await reader.ReadLineAsync(ct)) != null && !ct.IsCancellationRequested)
         {
-            var line = await reader.ReadLineAsync(ct);
             if (string.IsNullOrWhiteSpace(line)) continue;
 
             var chunk = JsonSerializer.Deserialize<OllamaChatResponse>(line, JsonOptions);

@@ -31,7 +31,7 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
 
-  # ─── .NET 8 Backend ──────────────────────────────────────────────────────────
+  # ─── .NET 10 Backend ─────────────────────────────────────────────────────────
   mtgforge:
     build:
       context: ./MtgForgeLocal
