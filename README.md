@@ -10,8 +10,8 @@
 MtgDeckForge App
     │
     ▼
-.NET 8 API  ──►  Ollama (local LLM, Metal GPU)
-    │               llama3.1:8b / mistral
+.NET 8 API  ──►  Ollama (local LLM + embeddings)
+    │               mistral / all-minilm
     ├──►  MongoDB (card catalog + saved decks)
     └──►  Qdrant  (vector search — semantic card retrieval)
 ```
@@ -49,13 +49,13 @@ Services started:
 
 ---
 
-## Step 2 — Set Up Ollama (runs natively on your Mac, NOT in Docker)
+## Step 2 — Set Up Ollama (runs natively, NOT in Docker)
 
 ```bash
 # Install Ollama from https://ollama.com/download, then:
 
-# Pull the LLM — ~4.7GB download
-ollama pull llama3.1:8b
+# Pull the LLM (default: mistral)
+ollama pull mistral:latest
 
 # Pull the embedding model — ~90MB
 ollama pull all-minilm
@@ -65,7 +65,7 @@ ollama list
 curl http://localhost:11434/api/tags
 ```
 
-> Ollama runs as a native macOS service and uses Metal GPU acceleration on M2.
+> Ollama runs as a native service and uses GPU acceleration (Metal on Apple Silicon).
 > It does NOT run inside Docker — this is intentional for performance.
 
 ---
@@ -183,7 +183,8 @@ curl -X POST http://localhost:5000/api/cards/search \
     "query": "sacrifice a creature to draw cards",
     "colors": ["B", "G"],
     "maxPrice": 5.00,
-    "limit": 20
+    "limit": 20,
+    "format": "commander"
   }'
 ```
 
@@ -206,15 +207,15 @@ curl -X POST http://localhost:5000/api/admin/ingest \
 
 ---
 
-## Memory Usage (M2 16GB)
+## Memory Usage (16GB RAM)
 
 | Component | RAM |
 |---|---|
-| llama3.1:8b (4-bit) | ~5.5 GB |
+| mistral (4-bit) | ~4.5 GB |
 | MongoDB | ~200 MB |
 | Qdrant (~10k vectors) | ~100 MB |
 | .NET API | ~80 MB |
-| **Total** | **~6 GB** |
+| **Total** | **~5 GB** |
 
 You'll have ~10GB free for your OS and other apps — should be comfortable.
 
@@ -252,7 +253,7 @@ ollama serve
 
 **Model not found:**
 ```bash
-ollama pull llama3.1:8b
+ollama pull mistral:latest
 ollama pull all-minilm
 ```
 

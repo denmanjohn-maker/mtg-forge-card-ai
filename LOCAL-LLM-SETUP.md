@@ -4,102 +4,111 @@
 
 Your production app (`bensmagicforge.app`) uses Claude Sonnet to generate MTG decks, but Claude ignores price constraints because it estimates card prices from training memory. The fix is structural: route generation through a local RAG pipeline (`mtg-forge-local`) that pre-filters cards in Qdrant by price **before** the LLM ever sees them.
 
-Two repos have been updated:
+### What's included in mtg-forge-local
 
-| Repo | Location |
-|---|---|
-| `mtg-forge-local` | `~/Desktop/Local LLM Magic/mtg-forge-local/` |
-| `MtgDeckForge` | `~/Desktop/Repos/MtgDeckForge/` |
-
-### What was already done by Copilot
-
-- **`mtg-forge-local`** extended to support all major formats: `commander`, `standard`, `modern`, `legacy`, `pioneer`, `pauper`, `vintage` — format-aware prompts, Qdrant filters, and deck size rules
-- **`MtgDeckForge`** given a `IDeckGenerationService` abstraction with two implementations: `ClaudeService` (existing) and `LocalLlmService` (new)
-- Provider toggled by `"LlmProvider"` in `appsettings.json` — no code changes required to switch
-- Both repos build cleanly (0 errors)
+- **Multi-format support**: `commander`, `standard`, `modern`, `legacy`, `pioneer`, `pauper`, `vintage` — format-aware prompts, Qdrant legality filters, and deck size rules
+- **Admin ingestion endpoint**: `POST /api/admin/ingest` — ingest cards from Scryfall without needing Python
+- **Color identity filtering**: Correctly excludes cards outside the requested color identity using `MustNot` filters
+- **Embedding model alignment**: `appsettings.json` uses `all-minilm` (384-dim) matching the Python ingestion script
+- **API-only mode**: No frontend — accepts requests from the main MtgDeckForge app
 
 ---
 
-## Steps You Need to Perform
+## Steps to Set Up
 
-### 1. Fix the Embedding Model Config
+### 1. Pull Ollama Models
 
-The `mtg-forge-local` config has a mismatch that will silently break semantic search. The ingestion script uses a **384-dimension** model but the config points to a **768-dimension** model.
-
-**File:** `~/Desktop/Local LLM Magic/mtg-forge-local/MtgForgeLocal/appsettings.json`
-
-Change:
-```json
-"EmbedModel": "nomic-embed-text"
-```
-To:
-```json
-"EmbedModel": "all-minilm"
-```
-
-Then pull the model in Ollama if you haven't already:
+Make sure the LLM and embedding models are downloaded:
 ```bash
+# LLM for deck generation (default is mistral)
+ollama pull mistral:latest
+
+# Embedding model for semantic card search (~90MB)
 ollama pull all-minilm
 ```
 
+You can change the LLM model in `MtgForgeLocal/appsettings.json` under `"Ollama:Model"` (e.g. `llama3.1:8b`, `phi3`).
+
 ---
 
-### 2. Pull the LLM Model in Ollama
+### 2. Start Infrastructure
 
-Make sure the generation model is downloaded (default is `mistral`):
 ```bash
-ollama pull mistral
+# From project root
+docker compose up -d
+
+# Verify services
+docker compose ps
 ```
 
-You can change the model in `mtg-forge-local/MtgForgeLocal/appsettings.json` under `"LlmModel"` if you prefer a different one (e.g. `llama3`, `phi3`).
+This starts MongoDB (port 27017) and Qdrant (ports 6333/6334).
+
+> **Note:** Ollama runs natively on macOS (Metal GPU acceleration). It does NOT run inside Docker.
+> Docker containers reach Ollama via `host.docker.internal:11434` — already configured in `docker-compose.yml`.
 
 ---
 
-### 3. Re-run the Card Ingestion Script
+### 3. Ingest Card Data
 
-The existing Qdrant collection only has `legality_commander`. Re-ingestion adds `legality_standard`, `legality_modern`, etc. for all 7 formats. **This step is required for non-Commander formats to work.**
+#### Option A: Admin API Endpoint (recommended — no Python needed)
 
-This will take ~15 minutes (downloads ~80MB from Scryfall, embeds ~26k cards).
+Start the .NET API first (Step 4), then trigger ingestion:
 
 ```bash
-cd ~/Desktop/Local\ LLM\ Magic/mtg-forge-local/scripts
+# Full ingestion (~27k cards — takes 5-30 min depending on embedding speed)
+curl -X POST http://localhost:5000/api/admin/ingest \
+  -H "Content-Type: application/json" \
+  -d '{}'
+
+# Quick test with 1000 cards
+curl -X POST http://localhost:5000/api/admin/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"limit": 1000}'
+```
+
+#### Option B: Python Script
+
+```bash
+cd scripts
 pip install -r requirements.txt   # first time only
 python ingest_cards.py
 ```
 
-> **Prerequisites:** Docker must be running with Qdrant and MongoDB containers up.
-> Start them with: `cd ~/Desktop/Local\ LLM\ Magic/mtg-forge-local && docker compose up -d qdrant mongo`
+Ingestion stores `legality_standard`, `legality_modern`, `legality_commander`, etc. for all 7 formats. **This is required for non-Commander formats to work.**
 
 ---
 
-### 4. Start the `mtg-forge-local` Services
+### 4. Start the .NET API
 
 ```bash
-cd ~/Desktop/Local\ LLM\ Magic/mtg-forge-local
-docker compose up -d
+cd MtgForgeLocal
+dotnet run
+```
+
+Or with Docker:
+```bash
+docker compose up mtgforge
 ```
 
 Verify it's running:
 ```bash
-curl http://localhost:5000/health
+curl http://localhost:5000/api/health
 ```
+
+API: http://localhost:5000
+Swagger UI: http://localhost:5000/swagger
 
 ---
 
-### 5. Switch MtgDeckForge to Local Mode
+### 5. Connect MtgDeckForge (Production App)
 
-**File:** `~/Desktop/Repos/MtgDeckForge/MtgDeckForge.Api/appsettings.json`
+In `MtgDeckForge.Api/appsettings.json`, switch the provider:
 
-Change:
-```json
-"LlmProvider": "Claude"
-```
-To:
 ```json
 "LlmProvider": "Local"
 ```
 
-The `LocalLlm` section should already be present with default values:
+The `LocalLlm` section should already be present:
 ```json
 "LocalLlm": {
   "BaseUrl": "http://localhost:5000",
@@ -108,17 +117,17 @@ The `LocalLlm` section should already be present with default values:
 }
 ```
 
+To switch back to Claude at any time, set `"LlmProvider": "Claude"` and restart.
+
 ---
 
 ### 6. Test End-to-End
 
-Run `MtgDeckForge` locally and generate a deck:
+Generate a deck via the MtgDeckForge app:
 
 1. Select format: **Standard** (or any non-Commander format to verify multi-format support)
-2. Set budget: **Budget ($0–$50)**
+2. Set budget: **$50**
 3. Generate — all cards in the result should have individual prices that sum to ≤ $50
-
-To switch back to Claude at any time, set `"LlmProvider": "Claude"` and restart.
 
 ---
 
@@ -130,21 +139,23 @@ MtgDeckForge.Api
        └─ IDeckGenerationService
             ├─ ClaudeService        (LlmProvider = "Claude")
             └─ LocalLlmService      (LlmProvider = "Local")
-                  ├─ GenerateDeckAsync  → mtg-forge-local :5000/api/deck/generate
+                  ├─ GenerateDeckAsync  → mtg-forge-local :5000/api/decks/generate
                   ├─ AnalyzeDeckAsync   → Ollama :11434 directly
                   └─ SuggestBudgetReplacementsAsync → returns [] (Qdrant pre-filters by price)
 
 mtg-forge-local :5000
-  └─ /api/deck/generate
-       ├─ CardSearchService  → Qdrant (semantic search + price filter + legality filter)
-       ├─ DeckGenerationService → Ollama (format-aware prompt)
-       └─ MongoDB (saved decks)
+  ├─ POST /api/decks/generate      → DeckGenerationService → Qdrant + Ollama
+  ├─ POST /api/cards/search        → CardSearchService → Qdrant semantic search
+  ├─ POST /api/admin/ingest        → CardIngestionService → Scryfall → MongoDB + Qdrant
+  ├─ GET  /api/decks               → MongoService (list saved decks)
+  ├─ GET  /api/health              → Health check (Ollama, MongoDB, Qdrant)
+  └─ MongoDB (card catalog + saved decks)
 ```
 
-## Known Issues / Optional Follow-Up
+## Notes
 
-| Issue | Severity | Notes |
-|---|---|---|
-| Qdrant color identity filter uses `Must` (requires ALL listed colors) instead of `MustNot` (exclude colors outside identity) | Low | Only affects multi-color Commander decks; cards returned may include colors outside the identity |
-| `mtg-forge-local` runs in Docker but Ollama runs natively on macOS | Info | Docker containers reach Ollama via `host.docker.internal:11434` — already configured |
-| `SuggestBudgetReplacementsAsync` returns `[]` in Local mode | By design | Budget enforcement loop in `DecksController` handles this gracefully; Qdrant pre-filtering makes it unnecessary |
+| Topic | Details |
+|---|---|
+| Ollama runs natively on macOS | Docker containers reach Ollama via `host.docker.internal:11434` — already configured |
+| `SuggestBudgetReplacementsAsync` returns `[]` in Local mode | By design — Qdrant pre-filtering makes it unnecessary |
+| Embedding model alignment | Both Python ingestion and .NET API use 384-dim models (`all-MiniLM-L6-v2` / `all-minilm`). See README.md for details on changing models. |
