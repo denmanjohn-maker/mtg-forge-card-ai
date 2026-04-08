@@ -64,7 +64,13 @@ public record CardSearchResult(
     double Score  // Similarity score from Qdrant
 );
 
-// ─── MongoDB Card Document ────────────────────────────────────────────────────
+// ─── Admin ─────────────────────────────────────────────────────────────────
+
+public record IngestionRequest(
+    bool MongoOnly = false,
+    bool QdrantOnly = false,
+    int? Limit = null
+);
 
 public class MtgCard
 {

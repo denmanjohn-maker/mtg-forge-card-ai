@@ -29,11 +29,18 @@ builder.Services.AddSingleton(sp =>
 builder.Services.AddHttpClient<OllamaService>();
 builder.Services.AddHttpClient<OllamaEmbedService>();
 
+// Scryfall — HttpClient for card ingestion
+builder.Services.AddHttpClient("Scryfall", client =>
+{
+    client.Timeout = TimeSpan.FromMinutes(5);
+});
+
 // Application services
 builder.Services.AddScoped<OllamaEmbedService>();
 builder.Services.AddScoped<OllamaService>();
 builder.Services.AddScoped<CardSearchService>();
 builder.Services.AddScoped<DeckGenerationService>();
+builder.Services.AddScoped<CardIngestionService>();
 
 // CORS — open for local dev
 builder.Services.AddCors(options =>
@@ -50,10 +57,6 @@ app.UseSwagger();
 app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "MTG Forge Local v1"));
 
 app.UseCors();
-app.UseStaticFiles();
 app.MapControllers();
-
-// Serve frontend SPA from wwwroot
-app.MapFallbackToFile("index.html");
 
 app.Run();

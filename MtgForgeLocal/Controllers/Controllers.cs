@@ -103,3 +103,47 @@ public class HealthController : ControllerBase
         });
     }
 }
+
+[ApiController]
+[Route("api/[controller]")]
+public class AdminController : ControllerBase
+{
+    private readonly CardIngestionService _ingestion;
+    private readonly ILogger<AdminController> _logger;
+
+    public AdminController(CardIngestionService ingestion, ILogger<AdminController> logger)
+    {
+        _ingestion = ingestion;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Ingest cards from Scryfall into MongoDB and Qdrant.
+    /// This is a long-running operation (5-30+ minutes depending on card count and embedding speed).
+    /// </summary>
+    [HttpPost("ingest")]
+    public async Task<ActionResult<IngestionResult>> Ingest(
+        [FromBody] IngestionRequest? req,
+        CancellationToken ct)
+    {
+        _logger.LogInformation(
+            "Starting card ingestion (mongoOnly={MongoOnly}, qdrantOnly={QdrantOnly}, limit={Limit})",
+            req?.MongoOnly ?? false, req?.QdrantOnly ?? false, req?.Limit);
+
+        try
+        {
+            var result = await _ingestion.IngestAsync(
+                mongoOnly: req?.MongoOnly ?? false,
+                qdrantOnly: req?.QdrantOnly ?? false,
+                limit: req?.Limit,
+                ct: ct);
+
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Card ingestion failed");
+            return StatusCode(500, new { error = ex.Message });
+        }
+    }
+}
