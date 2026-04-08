@@ -92,11 +92,15 @@ docker compose up mtgforge
 
 Verify it's running:
 ```bash
+# Local (dotnet run) — port 5000
 curl http://localhost:5000/api/health
+
+# Docker — port 5001 (mapped from internal 8080)
+curl http://localhost:5001/api/health
 ```
 
-API: http://localhost:5000
-Swagger UI: http://localhost:5000/swagger
+API (local): http://localhost:5000 / Swagger: http://localhost:5000/swagger
+API (Docker): http://localhost:5001 / Swagger: http://localhost:5001/swagger
 
 ---
 
@@ -116,6 +120,8 @@ The `LocalLlm` section should already be present:
   "Model": "mistral"
 }
 ```
+
+> If mtg-forge-local is running via Docker (`docker compose up mtgforge`), use port `5001` instead: `"BaseUrl": "http://localhost:5001"`.
 
 To switch back to Claude at any time, set `"LlmProvider": "Claude"` and restart.
 
