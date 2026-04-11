@@ -34,6 +34,7 @@ builder.Services.AddHttpClient("Scryfall", client =>
 {
     client.Timeout = TimeSpan.FromMinutes(5);
     client.DefaultRequestHeaders.UserAgent.ParseAdd("MtgForgeAi/1.0");
+    client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
 });
 
 // Application services
