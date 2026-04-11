@@ -1,4 +1,4 @@
-# MTG Forge Local
+# MTG Forge AI
 > Card API and deck generator using a local LLM (Ollama), MongoDB, and Qdrant vector search.
 > Accepts requests from the main MtgDeckForge app — no frontend included.
 
@@ -126,7 +126,7 @@ The ingestion pipeline will:
 ## Step 4 — Run the .NET API
 
 ```bash
-cd MtgForgeLocal
+cd MtgForgeAi
 dotnet run
 ```
 

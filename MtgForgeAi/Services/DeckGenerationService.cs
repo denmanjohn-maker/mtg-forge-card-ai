@@ -1,8 +1,8 @@
 using System.Text;
 using System.Text.Json;
-using MtgForgeLocal.Models;
+using MtgForgeAi.Models;
 
-namespace MtgForgeLocal.Services;
+namespace MtgForgeAi.Services;
 
 /// <summary>
 /// Orchestrates the full deck generation pipeline:

@@ -2,9 +2,9 @@
 
 ## Summary
 
-Your production app (`bensmagicforge.app`) uses Claude Sonnet to generate MTG decks, but Claude ignores price constraints because it estimates card prices from training memory. The fix is structural: route generation through a local RAG pipeline (`mtg-forge-local`) that pre-filters cards in Qdrant by price **before** the LLM ever sees them.
+Your production app (`bensmagicforge.app`) uses Claude Sonnet to generate MTG decks, but Claude ignores price constraints because it estimates card prices from training memory. The fix is structural: route generation through a local RAG pipeline (`mtg-forge-ai`) that pre-filters cards in Qdrant by price **before** the LLM ever sees them.
 
-### What's included in mtg-forge-local
+### What's included in mtg-forge-ai
 
 - **Multi-format support**: `commander`, `standard`, `modern`, `legacy`, `pioneer`, `pauper`, `vintage` — format-aware prompts, Qdrant legality filters, and deck size rules
 - **Admin ingestion endpoint**: `POST /api/admin/ingest` — ingest cards from Scryfall without needing Python
@@ -27,7 +27,7 @@ ollama pull mistral:latest
 ollama pull all-minilm
 ```
 
-You can change the LLM model in `MtgForgeLocal/appsettings.json` under `"Ollama:Model"` (e.g. `llama3.1:8b`, `phi3`).
+You can change the LLM model in `MtgForgeAi/appsettings.json` under `"Ollama:Model"` (e.g. `llama3.1:8b`, `phi3`).
 
 ---
 
@@ -81,7 +81,7 @@ Ingestion stores `legality_standard`, `legality_modern`, `legality_commander`, e
 ### 4. Start the .NET API
 
 ```bash
-cd MtgForgeLocal
+cd MtgForgeAi
 dotnet run
 ```
 
@@ -121,7 +121,7 @@ The `LocalLlm` section should already be present:
 }
 ```
 
-> If mtg-forge-local is running via Docker (`docker compose up mtgforge`), use port `5001` instead: `"BaseUrl": "http://localhost:5001"`.
+> If mtg-forge-ai is running via Docker (`docker compose up mtgforge`), use port `5001` instead: `"BaseUrl": "http://localhost:5001"`.
 
 To switch back to Claude at any time, set `"LlmProvider": "Claude"` and restart.
 
@@ -145,11 +145,11 @@ MtgDeckForge.Api
        └─ IDeckGenerationService
             ├─ ClaudeService        (LlmProvider = "Claude")
             └─ LocalLlmService      (LlmProvider = "Local")
-                  ├─ GenerateDeckAsync  → mtg-forge-local :5000/api/decks/generate
+                  ├─ GenerateDeckAsync  → mtg-forge-ai :5000/api/decks/generate
                   ├─ AnalyzeDeckAsync   → Ollama :11434 directly
                   └─ SuggestBudgetReplacementsAsync → returns [] (Qdrant pre-filters by price)
 
-mtg-forge-local :5000
+mtg-forge-ai :5000
   ├─ POST /api/decks/generate      → DeckGenerationService → Qdrant + Ollama
   ├─ POST /api/cards/search        → CardSearchService → Qdrant semantic search
   ├─ POST /api/admin/ingest        → CardIngestionService → Scryfall → MongoDB + Qdrant

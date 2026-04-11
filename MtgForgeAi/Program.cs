@@ -1,4 +1,4 @@
-using MtgForgeLocal.Services;
+using MtgForgeAi.Services;
 using Qdrant.Client;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -10,7 +10,7 @@ builder.Services.AddControllers()
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new() { Title = "MTG Forge Local", Version = "v1" });
+    c.SwaggerDoc("v1", new() { Title = "MTG Forge AI", Version = "v1" });
 });
 
 // MongoDB
@@ -54,7 +54,7 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 app.UseSwagger();
-app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "MTG Forge Local v1"));
+app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "MTG Forge AI v1"));
 
 app.UseCors();
 app.MapControllers();

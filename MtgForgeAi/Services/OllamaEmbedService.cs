@@ -2,7 +2,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 
-namespace MtgForgeLocal.Services;
+namespace MtgForgeAi.Services;
 
 /// <summary>
 /// Generates text embeddings using Ollama's local embedding endpoint.

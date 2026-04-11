@@ -1,8 +1,8 @@
-using MtgForgeLocal.Models;
+using MtgForgeAi.Models;
 using Qdrant.Client;
 using Qdrant.Client.Grpc;
 
-namespace MtgForgeLocal.Services;
+namespace MtgForgeAi.Services;
 
 /// <summary>
 /// Searches for MTG cards using semantic similarity via Qdrant.

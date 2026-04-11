@@ -1,7 +1,7 @@
 using MongoDB.Driver;
-using MtgForgeLocal.Models;
+using MtgForgeAi.Models;
 
-namespace MtgForgeLocal.Services;
+namespace MtgForgeAi.Services;
 
 public class MongoService
 {

@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace MtgForgeLocal.Services;
+namespace MtgForgeAi.Services;
 
 /// <summary>
 /// Talks to a locally running Ollama instance (http://localhost:11434).

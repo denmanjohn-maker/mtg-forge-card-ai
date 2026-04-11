@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
-using MtgForgeLocal.Models;
-using MtgForgeLocal.Services;
+using MtgForgeAi.Models;
+using MtgForgeAi.Services;
 
-namespace MtgForgeLocal.Controllers;
+namespace MtgForgeAi.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]

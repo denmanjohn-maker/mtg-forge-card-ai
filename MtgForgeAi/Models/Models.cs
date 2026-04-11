@@ -1,7 +1,7 @@
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 
-namespace MtgForgeLocal.Models;
+namespace MtgForgeAi.Models;
 
 // ─── Request / Response DTOs ──────────────────────────────────────────────────
 

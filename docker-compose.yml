@@ -34,7 +34,7 @@ services:
   # ─── .NET 10 Backend ─────────────────────────────────────────────────────────
   mtgforge:
     build:
-      context: ./MtgForgeLocal
+      context: ./MtgForgeAi
       dockerfile: Dockerfile
     container_name: mtg_forge_api
     restart: unless-stopped

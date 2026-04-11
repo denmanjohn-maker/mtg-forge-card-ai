@@ -2,11 +2,11 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using MtgForgeLocal.Models;
+using MtgForgeAi.Models;
 using Qdrant.Client;
 using Qdrant.Client.Grpc;
 
-namespace MtgForgeLocal.Services;
+namespace MtgForgeAi.Services;
 
 /// <summary>
 /// Handles card data ingestion from Scryfall into MongoDB and Qdrant.
