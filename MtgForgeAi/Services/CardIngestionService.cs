@@ -107,9 +107,18 @@ public class CardIngestionService
         var http = _httpClientFactory.CreateClient("Scryfall");
 
         // Get bulk data index
-        var bulkResponse = await http.GetFromJsonAsync<ScryfallBulkDataResponse>(
-            "https://api.scryfall.com/bulk-data", ct)
-            ?? throw new InvalidOperationException("Failed to fetch Scryfall bulk data index");
+        var bulkDataResponse = await http.GetAsync("https://api.scryfall.com/bulk-data", ct);
+        if (!bulkDataResponse.IsSuccessStatusCode)
+        {
+            var errorBody = await bulkDataResponse.Content.ReadAsStringAsync(ct);
+            _logger.LogError(
+                "Scryfall bulk-data returned {Status}: {Body}",
+                (int)bulkDataResponse.StatusCode, errorBody);
+            bulkDataResponse.EnsureSuccessStatusCode();
+        }
+
+        var bulkResponse = await bulkDataResponse.Content.ReadFromJsonAsync<ScryfallBulkDataResponse>(ct)
+            ?? throw new InvalidOperationException("Failed to deserialize Scryfall bulk data index");
 
         var oracleEntry = bulkResponse.Data?.FirstOrDefault(e =>
             e.Type.Equals("oracle_cards", StringComparison.OrdinalIgnoreCase))
@@ -118,7 +127,18 @@ public class CardIngestionService
         _logger.LogInformation("Downloading from {Uri}...", oracleEntry.DownloadUri);
 
         // Download and deserialize all cards
-        var stream = await http.GetStreamAsync(oracleEntry.DownloadUri, ct);
+        var downloadResponse = await http.GetAsync(oracleEntry.DownloadUri,
+            HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!downloadResponse.IsSuccessStatusCode)
+        {
+            var errorBody = await downloadResponse.Content.ReadAsStringAsync(ct);
+            _logger.LogError(
+                "Scryfall download returned {Status}: {Body}",
+                (int)downloadResponse.StatusCode, errorBody);
+            downloadResponse.EnsureSuccessStatusCode();
+        }
+
+        var stream = await downloadResponse.Content.ReadAsStreamAsync(ct);
         var scryfallCards = await JsonSerializer.DeserializeAsync<List<ScryfallCard>>(
             stream,
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true },
