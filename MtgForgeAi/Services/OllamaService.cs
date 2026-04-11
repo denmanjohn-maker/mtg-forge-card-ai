@@ -24,7 +24,7 @@ public class OllamaService
 
         var baseUrl = config["Ollama:BaseUrl"] ?? "http://localhost:11434";
         _http.BaseAddress = new Uri(baseUrl);
-        _http.Timeout = TimeSpan.FromMinutes(5); // LLM can be slow on first token
+        _http.Timeout = TimeSpan.FromMinutes(10); // CPU inference can be slow, especially on first load
     }
 
     /// <summary>
@@ -47,8 +47,8 @@ public class OllamaService
             Options = new OllamaOptions
             {
                 Temperature = 0.7,
-                NumCtx = 4096,      // Context window — keep reasonable for 16GB RAM
-                NumPredict = 2048   // Max output tokens
+                NumCtx = 8192,      // Deck prompts are large; need room for candidates + JSON output
+                NumPredict = 4096   // Full deck JSON can be lengthy
             }
         };
 

@@ -187,14 +187,14 @@ public class DeckGenerationService
 
         // Group candidates by rough category to help the LLM
         var grouped = candidates
-            .Take(150) // Respect context window
+            .Take(80) // Keep prompt compact for CPU inference
             .GroupBy(c => GuessCategory(c.TypeLine))
             .OrderBy(g => g.Key);
 
         foreach (var group in grouped)
         {
             sb.AppendLine($"[{group.Key}]");
-            foreach (var card in group.Take(30))
+            foreach (var card in group.Take(20))
             {
                 var price = card.PriceUsd > 0 ? $"${card.PriceUsd:F2}" : "free";
                 var text = card.OracleText?.Length > 80
