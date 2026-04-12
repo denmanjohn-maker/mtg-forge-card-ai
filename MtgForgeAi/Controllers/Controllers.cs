@@ -85,18 +85,18 @@ public class CardsController : ControllerBase
 [Route("api/[controller]")]
 public class HealthController : ControllerBase
 {
-    private readonly OllamaService _ollama;
+    private readonly ILlmService _llm;
 
-    public HealthController(OllamaService ollama) => _ollama = ollama;
+    public HealthController(ILlmService llm) => _llm = llm;
 
     [HttpGet]
     public async Task<IActionResult> Get(CancellationToken ct)
     {
-        var ollamaOk = await _ollama.IsHealthyAsync(ct);
+        var llmOk = await _llm.IsHealthyAsync(ct);
         return Ok(new
         {
-            status   = ollamaOk ? "healthy" : "degraded",
-            ollama   = ollamaOk ? "ok" : "unavailable — run: ollama pull llama3.1:8b",
+            status   = llmOk ? "healthy" : "degraded",
+            llm      = llmOk ? "ok" : "unavailable",
             mongodb  = "ok",
             qdrant   = "ok",
             timestamp = DateTime.UtcNow

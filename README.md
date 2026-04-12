@@ -1,5 +1,5 @@
 # MTG Forge AI
-> Card API and deck generator using a local LLM (Ollama), MongoDB, and Qdrant vector search.
+> Card API and deck generator using a configurable LLM backend (Ollama or Together.ai / OpenAI-compatible), MongoDB, and Qdrant vector search.
 > Accepts requests from the main MtgDeckForge app — no frontend included.
 
 ---
@@ -10,8 +10,11 @@
 MtgDeckForge App
     │
     ▼
-.NET 10 API  ──►  Ollama (local LLM + embeddings)
-    │                mistral / all-minilm
+.NET 10 API  ──►  ILlmService (provider-agnostic)
+    │                ├── OllamaLlmService  (local dev)
+    │                └── OpenAiLlmService  (Together.ai / OpenAI-compatible)
+    │
+    ├──►  OllamaEmbedService (always Ollama — all-minilm 384-dim)
     ├──►  MongoDB (card catalog + saved decks)
     └──►  Qdrant  (vector search — semantic card retrieval)
 ```
@@ -49,24 +52,42 @@ Services started:
 
 ---
 
-## Step 2 — Set Up Ollama (runs natively, NOT in Docker)
+## Step 2 — Configure LLM Provider
+
+The API supports two LLM backends. Set `LLM:Provider` in `appsettings.json` or via env vars.
+
+### Option A: Ollama (local dev — default)
 
 ```bash
 # Install Ollama from https://ollama.com/download, then:
-
-# Pull the LLM (default: mistral)
 ollama pull mistral:latest
-
-# Pull the embedding model — ~90MB
 ollama pull all-minilm
 
-# Verify Ollama is running
+# Verify
 ollama list
 curl http://localhost:11434/api/tags
 ```
 
+No config changes needed — Ollama is the default provider.
+
 > Ollama runs as a native service and uses GPU acceleration (Metal on Apple Silicon).
 > It does NOT run inside Docker — this is intentional for performance.
+
+### Option B: Together.ai / OpenAI-compatible (production)
+
+Set these env vars (or update `appsettings.json`):
+
+```bash
+LLM__Provider=openai
+LLM__BaseUrl=https://api.together.xyz
+LLM__Model=meta-llama/Llama-3.3-70B-Instruct-Turbo
+LLM__ApiKey=your-api-key-here
+```
+
+Any OpenAI-compatible API works (Together.ai, OpenRouter, Fireworks, etc.).
+
+> **Note:** Embeddings always use Ollama (`all-minilm`), even when the chat LLM is hosted externally.
+> The embedding model is tiny (~23MB) and runs fine on CPU.
 
 ---
 

@@ -5,6 +5,7 @@ pymongo>=4.6.0
 qdrant-client>=1.7.0
 sentence-transformers>=2.3.0
 tqdm>=4.66.0
+beautifulsoup4>=4.12.0    # HTML parsing for scrape_decklists.py
 
 # ── Training data export ──────────────────────────────────────────────────────
 datasets>=2.18.0          # HuggingFace datasets (also needed for fine-tuning)

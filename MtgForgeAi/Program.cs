@@ -25,8 +25,20 @@ builder.Services.AddSingleton(sp =>
     return new QdrantClient(host, port);
 });
 
-// Ollama — two named HttpClients (chat and embed may have different timeouts)
-builder.Services.AddHttpClient<OllamaService>();
+// LLM provider — config-driven: set LLM:Provider to "ollama" or "openai" (Together.ai, etc.)
+var llmProvider = builder.Configuration["LLM:Provider"]?.ToLowerInvariant() ?? "ollama";
+if (llmProvider == "openai")
+{
+    builder.Services.AddHttpClient<OpenAiLlmService>();
+    builder.Services.AddScoped<ILlmService, OpenAiLlmService>();
+}
+else
+{
+    builder.Services.AddHttpClient<OllamaLlmService>();
+    builder.Services.AddScoped<ILlmService, OllamaLlmService>();
+}
+
+// Ollama embeddings (always Ollama — small model, fast on CPU)
 builder.Services.AddHttpClient<OllamaEmbedService>();
 
 // Scryfall — HttpClient for card ingestion
@@ -39,7 +51,6 @@ builder.Services.AddHttpClient("Scryfall", client =>
 
 // Application services
 builder.Services.AddScoped<OllamaEmbedService>();
-builder.Services.AddScoped<OllamaService>();
 builder.Services.AddScoped<CardSearchService>();
 builder.Services.AddScoped<DeckGenerationService>();
 builder.Services.AddScoped<CardIngestionService>();

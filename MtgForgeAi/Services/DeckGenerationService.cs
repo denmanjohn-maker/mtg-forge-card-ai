@@ -14,18 +14,18 @@ namespace MtgForgeAi.Services;
 public class DeckGenerationService
 {
     private readonly CardSearchService _search;
-    private readonly OllamaService _ollama;
+    private readonly ILlmService _llm;
     private readonly MongoService _mongo;
     private readonly ILogger<DeckGenerationService> _logger;
 
     public DeckGenerationService(
         CardSearchService search,
-        OllamaService ollama,
+        ILlmService llm,
         MongoService mongo,
         ILogger<DeckGenerationService> logger)
     {
         _search = search;
-        _ollama = ollama;
+        _llm = llm;
         _mongo = mongo;
         _logger = logger;
     }
@@ -45,7 +45,7 @@ public class DeckGenerationService
         var userPrompt = BuildUserPrompt(req, candidates);
 
         // ── Step 3: Call Ollama ────────────────────────────────────────────────
-        var rawResponse = await _ollama.ChatAsync(systemPrompt, userPrompt, ct);
+        var rawResponse = await _llm.ChatAsync(systemPrompt, userPrompt, ct);
         _logger.LogInformation("Received LLM response ({Length} chars)", rawResponse.Length);
 
         // ── Step 4: Parse the response ─────────────────────────────────────────

@@ -6,17 +6,17 @@ using System.Text.Json.Serialization;
 namespace MtgForgeAi.Services;
 
 /// <summary>
-/// Talks to a locally running Ollama instance (http://localhost:11434).
-/// Ollama exposes an OpenAI-compatible /api/chat endpoint.
+/// LLM provider backed by a locally running Ollama instance.
+/// Ollama exposes a custom /api/chat endpoint (not OpenAI-compatible).
 /// On Apple Silicon, Ollama uses Metal GPU acceleration natively.
 /// </summary>
-public class OllamaService
+public class OllamaLlmService : ILlmService
 {
     private readonly HttpClient _http;
     private readonly string _model;
-    private readonly ILogger<OllamaService> _logger;
+    private readonly ILogger<OllamaLlmService> _logger;
 
-    public OllamaService(HttpClient http, IConfiguration config, ILogger<OllamaService> logger)
+    public OllamaLlmService(HttpClient http, IConfiguration config, ILogger<OllamaLlmService> logger)
     {
         _http = http;
         _model = config["Ollama:Model"] ?? "llama3.1:8b";
