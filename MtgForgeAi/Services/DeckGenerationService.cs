@@ -41,7 +41,7 @@ public class DeckGenerationService
         _logger.LogInformation("Retrieved {Count} candidate cards from Qdrant", candidates.Count);
 
         // ── Step 2: Build the prompt ───────────────────────────────────────────
-        var systemPrompt = BuildSystemPrompt(req.Format);
+        var systemPrompt = BuildSystemPrompt(req.Format, !string.IsNullOrWhiteSpace(req.Commander));
         var userPrompt = BuildUserPrompt(req, candidates);
 
         // ── Step 3: Call Ollama ────────────────────────────────────────────────
@@ -110,7 +110,7 @@ public class DeckGenerationService
         )
     };
 
-    private static string BuildSystemPrompt(string format)
+    private static string BuildSystemPrompt(string format, bool commanderNameProvided = false)
     {
         var rules = GetFormatRules(format);
         var fmt = format.ToUpperInvariant();
@@ -126,11 +126,32 @@ public class DeckGenerationService
               - No commander required; build a coherent 1-3 color strategy
               """;
 
+        var shouldSelectCommander = rules.RequiresCommander && !commanderNameProvided;
+
+        var commanderSelectionNote = shouldSelectCommander
+            ? "\n- Select an appropriate legendary creature or planeswalker as commander based on the theme and color identity. Include its name in the commander field of the JSON response."
+            : "";
+
         var pauperNote = format.Equals("pauper", StringComparison.OrdinalIgnoreCase)
             ? "\n- CRITICAL: Pauper format. ALL cards must be common rarity. Absolutely no uncommons, rares, or mythics."
             : "";
 
-        var jsonSchema = """
+        var jsonSchema = rules.RequiresCommander
+            ? """
+            {
+              "commander": "Chosen Commander Name",
+              "reasoning": "Brief explanation of the deck strategy and key synergies",
+              "sections": [
+                {
+                  "category": "Category Name",
+                  "cards": [
+                    { "name": "Card Name", "quantity": 1 }
+                  ]
+                }
+              ]
+            }
+            """
+            : """
             {
               "reasoning": "Brief explanation of the deck strategy and key synergies",
               "sections": [
@@ -149,7 +170,7 @@ public class DeckGenerationService
 
             Format requirements:
             - Build a deck with exactly {rules.DeckSize} cards total
-            {commanderRules}{pauperNote}
+            {commanderRules}{commanderSelectionNote}{pauperNote}
             - Balance the mana curve appropriately
             - Include: {string.Join(", ", rules.IncludeGuidance)}
             - Stay within the specified budget
@@ -172,6 +193,8 @@ public class DeckGenerationService
         sb.AppendLine($"Build a {req.Format.ToUpperInvariant()} deck with the following requirements:");
         if (isCommander && req.Commander != null)
             sb.AppendLine($"- Commander: {req.Commander}");
+        else if (isCommander)
+            sb.AppendLine("- Choose an appropriate commander for the theme and color identity.");
         sb.AppendLine($"- Theme/Strategy: {req.Theme}");
         if (req.ColorIdentity?.Count > 0)
             sb.AppendLine($"- Color Identity: {string.Join(", ", req.ColorIdentity)}");
@@ -284,8 +307,19 @@ public class DeckGenerationService
             .SelectMany(s => s.Cards)
             .Sum(c => c.PriceUsd * c.Quantity);
 
+        // Resolve commander: caller-supplied → LLM JSON field → legendary creature in Commander section
+        string? resolvedCommander = req.Commander;
+        if (string.IsNullOrWhiteSpace(resolvedCommander))
+            resolvedCommander = parsed?.Commander;
+        if (string.IsNullOrWhiteSpace(resolvedCommander))
+        {
+            var commanderSection = parsed?.Sections?
+                .FirstOrDefault(s => s.Category?.Equals("Commander", StringComparison.OrdinalIgnoreCase) == true);
+            resolvedCommander = commanderSection?.Cards?.FirstOrDefault()?.Name;
+        }
+
         return new DeckResponse(
-            Commander:     req.Commander,
+            Commander:     resolvedCommander,
             Theme:         req.Theme,
             Format:        req.Format,
             Sections:      sections,
@@ -299,6 +333,7 @@ public class DeckGenerationService
 
     private class LlmDeckOutput
     {
+        public string? Commander { get; set; }
         public string? Reasoning { get; set; }
         public List<LlmSection>? Sections { get; set; }
     }
