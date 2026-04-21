@@ -30,9 +30,6 @@ public class DecksController : ControllerBase
         if (!ValidFormats.Contains(format))
             return BadRequest($"Invalid format '{req.Format}'. Valid formats: {string.Join(", ", ValidFormats)}");
 
-        if (format == "commander" && string.IsNullOrWhiteSpace(req.Commander))
-            return BadRequest("Commander name is required for Commander format");
-
         var deck = await _generator.GenerateDeckAsync(req, ct);
         return Ok(deck);
     }

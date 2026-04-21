@@ -10,7 +10,7 @@ public record DeckRequest(
     string Theme,
     double Budget,
     int PowerLevel,          // 1–10
-    string? Commander = null,            // Required for Commander format only
+    string? Commander = null,            // Optional — if omitted for Commander format, the LLM will choose an appropriate commander
     List<string>? ColorIdentity = null,  // Required for Commander; optional color filter for others
     string? ExtraContext = null          // e.g. "focus on combo", "avoid infinite loops"
 );
