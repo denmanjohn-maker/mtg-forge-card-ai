@@ -2,7 +2,7 @@
 
 This guide walks you through configuring MTG Forge AI to use Together.ai as its LLM provider instead of a local Ollama model. Together.ai gives you access to large hosted models (70B+) with GPU-accelerated inference at very low cost — ideal for this proof of concept.
 
-> **Note on embeddings:** Even when using Together.ai for deck generation, the embedding model (`all-minilm`) still runs through a **local Ollama instance**. Embeddings are tiny and fast on CPU (~23 MB model), so this is not a bottleneck. Ollama must be running for card search and ingestion to work regardless of the LLM provider you choose.
+> **Note on embeddings:** Even when using Together.ai for deck generation, the embedding model (`all-minilm`) still runs through **Ollama**. In Railway, Ollama runs as a dedicated service used exclusively for embeddings — the model is tiny (~23 MB) and fast on CPU, so it is not a bottleneck. For local dev, Ollama must be running for card search and ingestion to work regardless of the LLM provider you choose.
 
 ---
 
@@ -10,9 +10,9 @@ This guide walks you through configuring MTG Forge AI to use Together.ai as its 
 
 | Tool | Purpose | Install |
 |---|---|---|
-| Docker Desktop | MongoDB + Qdrant infrastructure | https://www.docker.com/products/docker-desktop/ |
-| .NET 10 SDK | Build and run the API | https://dotnet.microsoft.com/download/dotnet/10 |
-| Ollama | Embedding model (`all-minilm`) — required even with Together.ai | https://ollama.com/download |
+| Docker Desktop | MongoDB + Qdrant infrastructure (local dev) | https://www.docker.com/products/docker-desktop/ |
+| .NET 10 SDK | Build and run the API (local dev) | https://dotnet.microsoft.com/download/dotnet/10 |
+| Ollama | Embedding model (`all-minilm`) — runs as a Railway service in production; install locally for local dev | https://ollama.com/download |
 | Together.ai account | Hosted LLM inference | https://api.together.ai |
 
 ---
@@ -100,7 +100,7 @@ mtgforge:
 
 ## Step 4 — Pull the Ollama Embedding Model
 
-Ollama is still required for card embeddings. Pull only the embedding model (you do **not** need a full LLM model when using Together.ai):
+Ollama is required for card embeddings. In Railway, Ollama runs as a service and the model is pre-pulled during setup. For local development, pull only the embedding model (you do **not** need a full LLM model when using Together.ai):
 
 ```bash
 # Embedding model — small (~23 MB), fast on CPU
@@ -110,11 +110,9 @@ ollama pull all-minilm
 ollama list
 ```
 
-Make sure Ollama is running:
+Make sure Ollama is running before starting the API:
 
 ```bash
-# macOS: Ollama runs as a background app after install.
-# If it's not running, open the Ollama app or run:
 ollama serve
 ```
 
@@ -200,7 +198,7 @@ curl -X POST http://localhost:5000/api/admin/ingest \
   -d '{}'
 ```
 
-Ingestion embeds cards using the local Ollama `all-minilm` model. The Together.ai API key is **not** used during ingestion.
+Ingestion embeds cards using the Ollama `all-minilm` model (running as a Railway service in production, or locally in dev). The Together.ai API key is **not** used during ingestion.
 
 If you already ingested cards previously (e.g. with the Ollama LLM provider), you do **not** need to re-ingest — the card data in MongoDB and Qdrant is provider-independent.
 
@@ -225,9 +223,9 @@ A successful response includes `sections` (grouped card lists), `estimatedCost`,
 
 ---
 
-## Switching Back to Ollama
+## Switching Back to Ollama (Local Dev Only)
 
-To switch back to local Ollama inference at any time, set:
+To switch to local Ollama inference for development, set:
 
 ```bash
 export LLM__Provider=ollama
@@ -244,6 +242,8 @@ Or in `appsettings.json`:
 ```
 
 The `LLM__BaseUrl`, `LLM__Model`, and `LLM__ApiKey` values are ignored when `Provider` is `ollama`. The Ollama model used is controlled by the separate `Ollama__Model` / `"Ollama:Model"` setting.
+
+> **Note:** Do not use Ollama as the LLM provider in Railway. Without GPU access, deck generation takes over 5 minutes. Together.ai is the correct choice for Railway deployments.
 
 ---
 
@@ -267,5 +267,5 @@ Prices are approximate and subject to Together.ai's current rates. Check [https:
 | `LLM API error 429` | Rate limited — reduce request frequency or upgrade Together.ai plan |
 | `LLM API error 404` on model | Model ID is incorrect — copy the exact ID from the Together.ai model list |
 | `llm: false` on health check | API key is set but the `/v1/models` call failed — check firewall/network |
-| Embeddings failing | Ollama is not running — `ollama serve` or restart the Ollama app |
+| Embeddings failing | Ollama is not running — `ollama serve` (local dev) or check the Ollama Railway service health |
 | Deck JSON parse warnings in logs | The model added text around the JSON — the parser strips this automatically; `ParseDeckResponse` handles it |
