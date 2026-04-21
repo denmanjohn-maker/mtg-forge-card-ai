@@ -156,7 +156,7 @@ public class CardSearchService
         return await SearchAsync(new CardSearchRequest(
             Query: query,
             Colors: req.ColorIdentity,
-            MaxPrice: perCardBudget * 3, // Allow some expensive staples in the candidate pool
+            MaxPrice: perCardBudget * 2, // Cap candidate pool to 2x per-card budget to pre-filter expensive cards
             Limit: 200,
             Format: req.Format
         ), ct);

@@ -190,6 +190,12 @@ public class DeckGenerationService
         var isCommander = req.Format.Equals("commander", StringComparison.OrdinalIgnoreCase);
         var rules = GetFormatRules(req.Format);
 
+        // Per-card price cap: budget spread across non-land slots.
+        // Commander assumes ~30 lands leaving ~70 spell slots; 60-card formats assume ~24 lands leaving ~36.
+        var spellSlots = isCommander ? 70.0 : 36.0;
+        var perCardBudget = req.Budget / spellSlots;
+        var maxCardPrice = perCardBudget * 4;
+
         sb.AppendLine($"Build a {req.Format.ToUpperInvariant()} deck with the following requirements:");
         if (isCommander && req.Commander != null)
             sb.AppendLine($"- Commander: {req.Commander}");
@@ -198,17 +204,18 @@ public class DeckGenerationService
         sb.AppendLine($"- Theme/Strategy: {req.Theme}");
         if (req.ColorIdentity?.Count > 0)
             sb.AppendLine($"- Color Identity: {string.Join(", ", req.ColorIdentity)}");
-        sb.AppendLine($"- Budget: ${req.Budget:F2} total for {rules.DeckSize} cards");
+        sb.AppendLine($"- Budget: ${req.Budget:F2} HARD LIMIT — the total price of all cards must not exceed this");
+        sb.AppendLine($"- Max price per card: ${maxCardPrice:F2} (average target: ${perCardBudget:F2}/card)");
         sb.AppendLine($"- Power Level: {req.PowerLevel}/10");
 
         if (!string.IsNullOrWhiteSpace(req.ExtraContext))
             sb.AppendLine($"- Additional notes: {req.ExtraContext}");
 
         sb.AppendLine();
-        sb.AppendLine("Available cards (from your card pool — use these as your primary source):");
+        sb.AppendLine("Available cards (choose ONLY from this list — do not add cards not shown here):");
         sb.AppendLine();
 
-        // Group candidates by rough category to help the LLM
+        // Group candidates by rough category, sorted cheapest-first so the LLM sees budget options prominently
         var grouped = candidates
             .Take(80) // Keep prompt compact for CPU inference
             .GroupBy(c => GuessCategory(c.TypeLine))
@@ -217,7 +224,7 @@ public class DeckGenerationService
         foreach (var group in grouped)
         {
             sb.AppendLine($"[{group.Key}]");
-            foreach (var card in group.Take(20))
+            foreach (var card in group.OrderBy(c => c.PriceUsd).Take(20))
             {
                 var price = card.PriceUsd > 0 ? $"${card.PriceUsd:F2}" : "free";
                 var text = card.OracleText?.Length > 80
@@ -228,8 +235,8 @@ public class DeckGenerationService
             sb.AppendLine();
         }
 
-        sb.AppendLine("You may also include well-known staples not in the list above if needed.");
-        sb.AppendLine("Ensure the total deck cost stays within budget.");
+        sb.AppendLine($"CRITICAL: Select only cards from the list above. Basic lands (Plains, Island, Swamp, Mountain, Forest) may be added freely.");
+        sb.AppendLine($"CRITICAL: Keep the total deck cost under ${req.Budget:F2}. Prefer cards priced under ${perCardBudget:F2} each.");
 
         return sb.ToString();
     }
@@ -307,6 +314,17 @@ public class DeckGenerationService
             .SelectMany(s => s.Cards)
             .Sum(c => c.PriceUsd * c.Quantity);
 
+        // Post-generation budget enforcement: replace/remove expensive cards if over budget
+        if (req.Budget > 0 && totalCost > req.Budget)
+        {
+            _logger.LogWarning(
+                "Generated deck cost ${Cost:F2} exceeds budget ${Budget:F2} — applying budget enforcement",
+                totalCost, req.Budget);
+            sections = EnforceBudget(sections, req.Budget, priceMap);
+            totalCost = sections.SelectMany(s => s.Cards).Sum(c => c.PriceUsd * c.Quantity);
+            _logger.LogInformation("After budget enforcement, deck cost is ${Cost:F2}", totalCost);
+        }
+
         // Resolve commander: caller-supplied → LLM JSON field → legendary creature in Commander section
         string? resolvedCommander = req.Commander;
         if (string.IsNullOrWhiteSpace(resolvedCommander))
@@ -327,6 +345,97 @@ public class DeckGenerationService
             Reasoning:     parsed?.Reasoning ?? raw,
             GeneratedAt:   DateTime.UtcNow
         );
+    }
+
+    /// <summary>
+    /// Iteratively replaces the most expensive non-land, non-commander cards with cheaper
+    /// candidates from the search pool until the deck fits within budget.
+    /// Cards with unknown price ($0) that aren't in the candidate pool are left in place;
+    /// they appear as $0 in the cost total so they cannot cause an over-budget reading.
+    /// </summary>
+    private List<DeckSection> EnforceBudget(
+        List<DeckSection> sections,
+        double budget,
+        Dictionary<string, CardSearchResult> priceMap)
+    {
+        var skipped = new HashSet<string>(["Lands", "Commander"], StringComparer.OrdinalIgnoreCase);
+
+        // Track names already in the deck to avoid duplicates
+        var inDeck = new HashSet<string>(
+            sections.SelectMany(s => s.Cards).Select(c => c.Name),
+            StringComparer.OrdinalIgnoreCase);
+
+        // Build an ascending-price pool of candidates not already in the deck
+        var cheapPool = priceMap.Values
+            .Where(c => !inDeck.Contains(c.Name))
+            .OrderBy(c => c.PriceUsd)
+            .ToList();
+
+        // Snapshot of replaceable cards sorted most-expensive-first.
+        // Cards may be replaced/removed during iteration; FindIndex re-checks the live section list
+        // each time, so idx < 0 guards against stale snapshot entries safely.
+        var replaceable = sections
+            .Where(s => !skipped.Contains(s.Category))
+            .SelectMany(s => s.Cards.Select(c => (Section: s, Card: c)))
+            .Where(x => x.Card.PriceUsd > 0)
+            .OrderByDescending(x => x.Card.PriceUsd * x.Card.Quantity)
+            .ToList();
+
+        var totalCost = sections.SelectMany(s => s.Cards).Sum(c => c.PriceUsd * c.Quantity);
+
+        foreach (var (section, expensiveCard) in replaceable)
+        {
+            if (totalCost <= budget) break;
+
+            // Find current index (card may have already been replaced in an earlier iteration)
+            var idx = section.Cards.FindIndex(
+                c => c.Name.Equals(expensiveCard.Name, StringComparison.OrdinalIgnoreCase));
+            if (idx < 0) continue;
+
+            var cardType = GuessCategory(expensiveCard.TypeLine);
+
+            // Prefer same-type replacement first, then any cheaper candidate — single pass with priority sort
+            var replacement = cheapPool
+                .Where(c => c.PriceUsd < expensiveCard.PriceUsd)
+                .OrderByDescending(c => GuessCategory(c.TypeLine) == cardType)
+                .ThenBy(c => c.PriceUsd)
+                .FirstOrDefault();
+
+            totalCost -= expensiveCard.PriceUsd * expensiveCard.Quantity;
+            inDeck.Remove(expensiveCard.Name);
+
+            if (replacement != null)
+            {
+                var newCard = new DeckCard(
+                    Name:        replacement.Name,
+                    Quantity:    expensiveCard.Quantity,
+                    PriceUsd:    replacement.PriceUsd,
+                    OracleText:  replacement.OracleText,
+                    ImageUri:    replacement.ImageUri,
+                    ScryfallUri: replacement.ScryfallUri,
+                    ManaCost:    replacement.ManaCost,
+                    Cmc:         replacement.Cmc,
+                    TypeLine:    replacement.TypeLine
+                );
+                section.Cards[idx] = newCard;
+                totalCost += newCard.PriceUsd * newCard.Quantity;
+                inDeck.Add(replacement.Name);
+                cheapPool.Remove(replacement);
+                _logger.LogDebug(
+                    "Budget enforcement: replaced '{Expensive}' (${OldPrice:F2}) with '{Cheap}' (${NewPrice:F2})",
+                    expensiveCard.Name, expensiveCard.PriceUsd, replacement.Name, replacement.PriceUsd);
+            }
+            else
+            {
+                // No cheaper replacement available — remove the card entirely
+                section.Cards.RemoveAt(idx);
+                _logger.LogDebug(
+                    "Budget enforcement: removed '{Expensive}' (${Price:F2}) — no cheaper replacement found",
+                    expensiveCard.Name, expensiveCard.PriceUsd);
+            }
+        }
+
+        return sections;
     }
 
     // ─── LLM Output Shape ─────────────────────────────────────────────────────
