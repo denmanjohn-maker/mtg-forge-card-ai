@@ -1,8 +1,10 @@
-# Local LLM Setup — MTG Deck Forge
+# Railway Architecture — MTG Deck Forge
 
 ## Summary
 
-Your production app (`bensmagicforge.app`) uses Claude Sonnet to generate MTG decks, but Claude ignores price constraints because it estimates card prices from training memory. The fix is structural: route generation through a local RAG pipeline (`mtg-forge-ai`) that pre-filters cards in Qdrant by price **before** the LLM ever sees them.
+`mtg-forge-ai` is the deck generation backend for the MtgDeckForge frontend app. Both services are deployed on Railway.app. The backend runs a RAG pipeline that pre-filters cards in Qdrant by price **before** the LLM ever sees them, ensuring budget constraints are respected.
+
+> **Why Together.ai?** Ollama was initially run in Railway as the LLM for deck generation, but without GPU access the response times exceeded 5 minutes per deck. Together.ai provides GPU-accelerated inference with sub-10-second generation times.
 
 ### What's included in mtg-forge-ai
 
@@ -14,20 +16,44 @@ Your production app (`bensmagicforge.app`) uses Claude Sonnet to generate MTG de
 
 ---
 
-## Steps to Set Up
+## Railway Environments
+
+| Environment | Branch | Purpose |
+|---|---|---|
+| **Production** | `main` | Live user-facing deployment |
+| **Staging** | `staging` | Pre-release testing — mirrors the other repo's staging branch |
+
+Both environments run the same service topology: .NET API + MongoDB + Qdrant + Ollama (embeddings only) + Together.ai (LLM chat).
+
+---
+
+## Railway Service Topology
+
+Each environment deploys the following Railway services:
+
+| Service | Purpose | Internal URL |
+|---|---|---|
+| `.NET API` (this repo) | Deck generation, card search, ingestion | `mtgforgeai.railway.internal` |
+| `MongoDB` | Card catalog + saved decks | `mongodb.railway.internal:27017` |
+| `Qdrant` | Vector search | `qdrant.railway.internal:6334` |
+| `Ollama` | Embedding model only (`all-minilm`) | `ollama.railway.internal:11434` |
+| Together.ai | LLM chat completions (hosted, no Railway service) | `https://api.together.xyz` |
+
+---
+
+## Steps to Set Up (Local Development)
 
 ### 1. Pull Ollama Models
 
-Make sure the LLM and embedding models are downloaded:
+For local development, make sure the embedding model is downloaded (the LLM chat uses Together.ai, so no large local LLM is needed):
+
 ```bash
-# LLM for deck generation (default is mistral)
-ollama pull mistral:latest
-
-# Embedding model for semantic card search (~90MB)
+# Embedding model for semantic card search (~23 MB)
 ollama pull all-minilm
-```
 
-You can change the LLM model in `MtgForgeAi/appsettings.json` under `"Ollama:Model"` (e.g. `llama3.1:8b`, `phi3`).
+# Optional: chat model if you want to test with local Ollama instead of Together.ai
+ollama pull mistral:latest
+```
 
 ---
 
@@ -42,9 +68,6 @@ docker compose ps
 ```
 
 This starts MongoDB (port 27017) and Qdrant (ports 6333/6334).
-
-> **Note:** Ollama runs natively on macOS (Metal GPU acceleration). It does NOT run inside Docker.
-> Docker containers reach Ollama via `host.docker.internal:11434` — already configured in `docker-compose.yml`.
 
 ---
 
@@ -104,7 +127,7 @@ API (Docker): http://localhost:5001 / Swagger: http://localhost:5001/swagger
 
 ---
 
-### 5. Connect MtgDeckForge (Production App)
+### 5. Connect MtgDeckForge
 
 In `MtgDeckForge.Api/appsettings.json`, switch the provider:
 
@@ -123,38 +146,23 @@ The `LocalLlm` section should already be present:
 
 > If mtg-forge-ai is running via Docker (`docker compose up mtgforge`), use port `5001` instead: `"BaseUrl": "http://localhost:5001"`.
 
-To switch back to Claude at any time, set `"LlmProvider": "Claude"` and restart.
-
----
-
-### 6. Test End-to-End
-
-Generate a deck via the MtgDeckForge app:
-
-1. Select format: **Standard** (or any non-Commander format to verify multi-format support)
-2. Set budget: **$50**
-3. Generate — all cards in the result should have individual prices that sum to ≤ $50
-
 ---
 
 ## Architecture Overview
 
 ```
-MtgDeckForge.Api
+MtgDeckForge.Api (Railway)
   └─ DecksController
        └─ IDeckGenerationService
-            ├─ ClaudeService        (LlmProvider = "Claude")
             └─ LocalLlmService      (LlmProvider = "Local")
-                  ├─ GenerateDeckAsync  → mtg-forge-ai :5000/api/decks/generate
-                  ├─ AnalyzeDeckAsync   → Ollama :11434 directly
-                  └─ SuggestBudgetReplacementsAsync → returns [] (Qdrant pre-filters by price)
+                  └─ GenerateDeckAsync  → mtg-forge-ai /api/decks/generate
 
-mtg-forge-ai :5000
-  ├─ POST /api/decks/generate      → DeckGenerationService → Qdrant + Ollama
+mtg-forge-ai (Railway)
+  ├─ POST /api/decks/generate      → DeckGenerationService → Qdrant + Together.ai
   ├─ POST /api/cards/search        → CardSearchService → Qdrant semantic search
   ├─ POST /api/admin/ingest        → CardIngestionService → Scryfall → MongoDB + Qdrant
   ├─ GET  /api/decks               → MongoService (list saved decks)
-  ├─ GET  /api/health              → Health check (Ollama, MongoDB, Qdrant)
+  ├─ GET  /api/health              → Health check (LLM, MongoDB, Qdrant)
   └─ MongoDB (card catalog + saved decks)
 ```
 
@@ -162,6 +170,6 @@ mtg-forge-ai :5000
 
 | Topic | Details |
 |---|---|
-| Ollama runs natively on macOS | Docker containers reach Ollama via `host.docker.internal:11434` — already configured |
+| Ollama in Railway (embeddings only) | Ollama runs as a Railway service but is used **only** for the `all-minilm` embedding model. LLM chat goes to Together.ai. |
 | `SuggestBudgetReplacementsAsync` returns `[]` in Local mode | By design — Qdrant pre-filtering makes it unnecessary |
 | Embedding model alignment | Both Python ingestion and .NET API use 384-dim models (`all-MiniLM-L6-v2` / `all-minilm`). See README.md for details on changing models. |

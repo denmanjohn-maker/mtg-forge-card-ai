@@ -1,6 +1,6 @@
 # MTG Forge AI
 
-> API-only RAG system for MTG deck generation. Configurable LLM backend (Ollama for local dev, Together.ai / OpenAI-compatible for production), MongoDB for card data + saved decks, Qdrant for vector search. Accepts requests from the MtgDeckForge frontend app — no UI included.
+> API-only RAG system for MTG deck generation. Uses Together.ai for LLM chat completions and Ollama for embeddings only. MongoDB for card data + saved decks, Qdrant for vector search. Deployed on Railway.app — accepts requests from the MtgDeckForge frontend app — no UI included.
 
 ---
 
@@ -74,9 +74,7 @@ ollama pull all-minilm       # embedding model (always needed, even with Option 
 ollama list                  # verify
 ```
 
-> Ollama runs natively on macOS with Metal GPU acceleration. It does NOT run in Docker.
-
-#### Option B: Together.ai / OpenAI-compatible (production)
+#### Option B: Together.ai / OpenAI-compatible (production — current Railway setup)
 
 Set env vars or update `appsettings.json`:
 
@@ -89,7 +87,7 @@ LLM__ApiKey=your-api-key-here
 
 Works with any OpenAI-compatible API (Together.ai, OpenRouter, Fireworks, etc.).
 
-> **Important:** Embeddings always use Ollama (`all-minilm`), even when chat is hosted externally. You still need Ollama running for embeddings — the model is tiny (~23MB) and fast on CPU.
+> **Important:** Embeddings always use Ollama (`all-minilm`), even when chat is hosted externally. In production (Railway), Ollama runs as a Railway service for embeddings — the model is tiny (~23MB) and fast on CPU.
 
 ### 3. Run the API
 
@@ -173,19 +171,17 @@ All config lives in `MtgForgeAi/appsettings.json`. Override via env vars using `
 
 ### Railway deployment env vars
 
+The production and staging environments on Railway.app use Together.ai for LLM chat (Ollama was tried for LLM chat in Railway but was too slow without a GPU — deck generation took over 5 minutes). Ollama remains in Railway solely for the embedding model, which runs fine on CPU.
+
+**Production** (main branch) and **Staging** (staging branch) both use:
+
 ```
 MongoDB__ConnectionString=mongodb://user:pass@mongodb.railway.internal:27017
 MongoDB__DatabaseName=mtgforge
 Qdrant__Host=qdrant.railway.internal
 Qdrant__Port=6334
 Ollama__BaseUrl=http://ollama.railway.internal:11434
-Ollama__Model=mistral:latest
 Ollama__EmbedModel=all-minilm
-LLM__Provider=ollama
-```
-
-To switch to Together.ai on Railway, add:
-```
 LLM__Provider=openai
 LLM__BaseUrl=https://api.together.xyz
 LLM__Model=meta-llama/Llama-3.3-70B-Instruct-Turbo
@@ -259,7 +255,7 @@ mtg-forge-card-ai/
 ├── docker-compose.yml             # MongoDB + Qdrant + (optional) API container
 ├── mtg-forge-ai.sln               # .NET solution file
 ├── README.md                      # This file
-└── LOCAL-LLM-SETUP.md             # Detailed local LLM + MtgDeckForge integration guide
+└── LOCAL-LLM-SETUP.md             # Railway architecture and MtgDeckForge integration guide
 ```
 
 ---
@@ -307,30 +303,15 @@ Or to host the fine-tuned model on Together.ai:
 
 ---
 
-## Memory Usage (16GB RAM — local dev)
-
-| Component | RAM |
-|---|---|
-| mistral (4-bit) | ~4.5 GB |
-| MongoDB | ~200 MB |
-| Qdrant (~30k vectors) | ~150 MB |
-| .NET API | ~80 MB |
-| **Total** | **~5 GB** |
-
-> When using Together.ai (`LLM:Provider=openai`), the LLM RAM is zero — only the embedding model (~100MB) runs locally.
-
----
-
 ## Troubleshooting
 
 | Problem | Fix |
 |---|---|
-| Ollama not reachable | `ollama serve` (or restart Ollama app) |
-| Model not found | `ollama pull mistral:latest && ollama pull all-minilm` |
-| Qdrant connection refused | `docker compose up -d qdrant && curl http://localhost:6333/healthz` |
-| MongoDB auth error | Check `MongoDB__ConnectionString` matches docker-compose credentials |
+| Ollama not reachable | Verify the Ollama service is running (Railway service health, or `ollama serve` for local dev) |
+| Embedding model not found | `ollama pull all-minilm` on the host running Ollama |
+| Qdrant connection refused | Check Qdrant service is running: `curl http://localhost:6333/healthz` |
+| MongoDB auth error | Check `MongoDB__ConnectionString` matches configured credentials |
 | Search returns no results | Embedding model mismatch — delete collection and re-ingest (see above) |
 | Scryfall ingestion 400 error | Scryfall requires `User-Agent` + `Accept` headers (already configured) |
-| Deck generation timeout | Increase timeout: CPU inference is slow (~6.5 tok/s). Consider Together.ai. |
-| Railway: LLM too slow | Set `LLM__Provider=openai` with Together.ai for GPU inference |
+| Deck generation timeout | Ensure `LLM__Provider=openai` with Together.ai — Ollama in Railway has no GPU and will be slow |
 | Qdrant collection not found | Collection name is `mtg_cards` (not `cards`). Run ingestion first. |
