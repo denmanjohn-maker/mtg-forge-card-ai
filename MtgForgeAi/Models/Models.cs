@@ -22,7 +22,8 @@ public record DeckResponse(
     List<DeckSection> Sections,
     double EstimatedCost,
     string Reasoning,
-    DateTime GeneratedAt
+    DateTime GeneratedAt,
+    List<string>? ValidationWarnings = null
 );
 
 public record DeckSection(

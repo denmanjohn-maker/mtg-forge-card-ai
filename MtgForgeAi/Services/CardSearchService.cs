@@ -133,32 +133,65 @@ public class CardSearchService
     }
 
     /// <summary>
-    /// Retrieve a large candidate pool for deck generation.
-    /// We intentionally pull more cards than needed and let the LLM curate.
+    /// Retrieve a candidate pool for deck generation using parallel category-targeted queries.
+    /// Running multiple focused semantic searches and deduplicating results gives much better
+    /// coverage than a single broad query — each category (ramp, removal, draw, etc.) gets its
+    /// own embedding that points to the right area of the vector space.
     /// </summary>
     public async Task<List<CardSearchResult>> GetDeckCandidatesAsync(
         DeckRequest req,
         CancellationToken ct = default)
     {
         var isCommander = req.Format.Equals("commander", StringComparison.OrdinalIgnoreCase);
+        var colors      = string.Join(" ", req.ColorIdentity ?? []);
+        var spellSlots  = isCommander ? 70.0 : 36.0;
+        var maxPrice    = (req.Budget / spellSlots) * 2;
 
-        // Build a rich semantic query from the deck request
-        var query = isCommander && req.Commander != null
-            ? $"{req.Commander} commander {req.Theme} strategy " +
-              $"{string.Join(" ", req.ColorIdentity ?? [])} colors power level {req.PowerLevel}"
-            : $"{req.Format} deck {req.Theme} strategy " +
-              $"{string.Join(" ", req.ColorIdentity ?? [])} colors power level {req.PowerLevel}";
+        var queries = isCommander
+            ? BuildCommanderQueries(req, colors)
+            : BuildDefaultQueries(req, colors);
 
-        // Budget per card: Commander ~70 non-land slots, 60-card formats ~36 spell slots
-        var spellSlots = isCommander ? 70.0 : 36.0;
-        var perCardBudget = req.Budget / spellSlots;
+        var tasks = queries.Select(q => SearchAsync(new CardSearchRequest(
+            Query:    q.Query,
+            Colors:   req.ColorIdentity,
+            MaxPrice: maxPrice,
+            Limit:    q.Limit,
+            Format:   req.Format
+        ), ct));
 
-        return await SearchAsync(new CardSearchRequest(
-            Query: query,
-            Colors: req.ColorIdentity,
-            MaxPrice: perCardBudget * 2, // Cap candidate pool to 2x per-card budget to pre-filter expensive cards
-            Limit: 200,
-            Format: req.Format
-        ), ct);
+        var allResults = await Task.WhenAll(tasks);
+
+        // Deduplicate by name, keeping the highest similarity score for each card
+        var deduped = allResults
+            .SelectMany(r => r)
+            .GroupBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.MaxBy(c => c.Score)!)
+            .ToList();
+
+        _logger.LogInformation(
+            "Multi-query RAG: {Count} unique candidates from {Q} parallel queries",
+            deduped.Count, queries.Count);
+
+        return deduped;
     }
+
+    private static List<(string Query, int Limit)> BuildCommanderQueries(DeckRequest req, string colors) =>
+    [
+        ($"{req.Commander ?? req.Theme} synergy {req.Theme} strategy {colors}", 40),
+        ($"mana ramp acceleration fetch land {colors}",                          30),
+        ($"removal destroy exile counterspell {colors}",                         30),
+        ($"card draw card advantage draw cards {colors}",                        30),
+        ($"board wipe mass removal destroy all {colors}",                        20),
+        ($"win condition finisher payoff {req.Theme} {colors}",                  30),
+        ($"utility lands mana fixing dual land {colors}",                        25),
+    ];
+
+    private static List<(string Query, int Limit)> BuildDefaultQueries(DeckRequest req, string colors) =>
+    [
+        ($"{req.Theme} {req.Format} deck strategy {colors}", 50),
+        ($"removal destroy exile {colors}",                  35),
+        ($"card draw card advantage {colors}",               35),
+        ($"win condition finisher {req.Theme} {colors}",     35),
+        ($"mana base lands {colors}",                        25),
+    ];
 }
