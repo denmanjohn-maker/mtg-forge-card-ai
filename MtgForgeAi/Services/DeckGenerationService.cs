@@ -44,8 +44,8 @@ public class DeckGenerationService
         var systemPrompt = BuildSystemPrompt(req.Format, !string.IsNullOrWhiteSpace(req.Commander));
         var userPrompt = BuildUserPrompt(req, candidates);
 
-        // ── Step 3: Call Ollama ────────────────────────────────────────────────
-        var rawResponse = await _llm.ChatAsync(systemPrompt, userPrompt, ct);
+        // ── Step 3: Call LLM with JSON mode ───────────────────────────────────
+        var rawResponse = await _llm.ChatAsync(systemPrompt, userPrompt, jsonMode: true, ct);
         _logger.LogInformation("Received LLM response ({Length} chars)", rawResponse.Length);
 
         // ── Step 4: Parse the response ─────────────────────────────────────────
@@ -217,18 +217,18 @@ public class DeckGenerationService
 
         // Group candidates by rough category, sorted cheapest-first so the LLM sees budget options prominently
         var grouped = candidates
-            .Take(80) // Keep prompt compact for CPU inference
+            .Take(150)
             .GroupBy(c => GuessCategory(c.TypeLine))
             .OrderBy(g => g.Key);
 
         foreach (var group in grouped)
         {
             sb.AppendLine($"[{group.Key}]");
-            foreach (var card in group.OrderBy(c => c.PriceUsd).Take(20))
+            foreach (var card in group.OrderBy(c => c.PriceUsd).Take(30))
             {
                 var price = card.PriceUsd > 0 ? $"${card.PriceUsd:F2}" : "free";
-                var text = card.OracleText?.Length > 80
-                    ? card.OracleText[..80] + "..."
+                var text = card.OracleText?.Length > 200
+                    ? card.OracleText[..200] + "..."
                     : card.OracleText ?? "";
                 sb.AppendLine($"  - {card.Name} ({card.ManaCost}) [{price}]: {text}");
             }
@@ -309,6 +309,25 @@ public class DeckGenerationService
                 );
             }).ToList() ?? []
         )).ToList() ?? [];
+
+        // Remove hallucinated card names — any card not in the candidate pool and not a basic land is invalid.
+        var basicLands = new HashSet<string>(
+            ["Plains", "Island", "Swamp", "Mountain", "Forest", "Wastes"],
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var section in sections)
+        {
+            var before = section.Cards.Count;
+            section.Cards.RemoveAll(c =>
+                !basicLands.Contains(c.Name) &&
+                !priceMap.ContainsKey(c.Name.ToLowerInvariant()));
+
+            var removed = before - section.Cards.Count;
+            if (removed > 0)
+                _logger.LogWarning(
+                    "Section '{Category}': removed {Count} hallucinated card(s) not found in candidate pool",
+                    section.Category, removed);
+        }
 
         var totalCost = sections
             .SelectMany(s => s.Cards)
