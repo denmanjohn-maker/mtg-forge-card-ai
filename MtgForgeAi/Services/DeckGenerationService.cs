@@ -18,10 +18,6 @@ public class DeckGenerationService
     private readonly MongoService _mongo;
     private readonly ILogger<DeckGenerationService> _logger;
 
-    private static readonly HashSet<string> BasicLandNames = new(
-        ["Plains", "Island", "Swamp", "Mountain", "Forest", "Wastes"],
-        StringComparer.OrdinalIgnoreCase);
-
     public DeckGenerationService(
         CardSearchService search,
         ILlmService llm,
@@ -145,8 +141,8 @@ public class DeckGenerationService
 
         var phase1Cost  = phase1Sections.SelectMany(s => s.Cards).Sum(c => c.PriceUsd * c.Quantity);
         var phase1Count = phase1Sections.SelectMany(s => s.Cards).Sum(c => c.Quantity);
-        var remainingBudget = req.Budget - phase1Cost;
-        var remainingSlots  = 99 - phase1Count; // Commander counts as the 100th card
+        var remainingBudget = Math.Max(0, req.Budget - phase1Cost);
+        var remainingSlots  = Math.Max(0, 99 - phase1Count); // Commander counts as the 100th card
 
         _logger.LogInformation("Phase 1: {Count} cards (${Cost:F2}). Phase 2: {Slots} slots, ${Budget:F2}",
             phase1Count, phase1Cost, remainingSlots, remainingBudget);
@@ -380,7 +376,10 @@ public class DeckGenerationService
         bool prioritizeLands,
         bool excludeLands)
     {
-        sb.AppendLine("Available cards (choose ONLY from this list):");
+        if (perCardBudget > 0)
+            sb.AppendLine($"Available cards — budget target ~${perCardBudget:F2}/card (cards marked ⚠ exceed 3× target):");
+        else
+            sb.AppendLine("Available cards (choose ONLY from this list):");
         sb.AppendLine();
 
         var grouped = candidates
@@ -395,11 +394,12 @@ public class DeckGenerationService
             sb.AppendLine($"[{group.Key}]");
             foreach (var card in group.OrderBy(c => c.PriceUsd).Take(30))
             {
-                var price = card.PriceUsd > 0 ? $"${card.PriceUsd:F2}" : "free";
-                var text  = card.OracleText?.Length > 200
+                var price     = card.PriceUsd > 0 ? $"${card.PriceUsd:F2}" : "free";
+                var overBudget = perCardBudget > 0 && card.PriceUsd > perCardBudget * 3 ? " ⚠" : "";
+                var text      = card.OracleText?.Length > 200
                     ? card.OracleText[..200] + "..."
                     : card.OracleText ?? "";
-                sb.AppendLine($"  - {card.Name} ({card.ManaCost}) [{price}]: {text}");
+                sb.AppendLine($"  - {card.Name} ({card.ManaCost}) [{price}{overBudget}]: {text}");
             }
             sb.AppendLine();
         }
@@ -435,7 +435,7 @@ public class DeckGenerationService
         return (sections, resolvedCommander, parsed?.Reasoning ?? raw);
     }
 
-    private static LlmDeckOutput? TryDeserializeLlmOutput(string raw)
+    private LlmDeckOutput? TryDeserializeLlmOutput(string raw)
     {
         var json  = raw.Replace("```json", "").Replace("```", "").Trim();
         var start = json.IndexOf('{');
@@ -448,8 +448,10 @@ public class DeckGenerationService
             return JsonSerializer.Deserialize<LlmDeckOutput>(json,
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
+            _logger.LogWarning(ex, "Failed to deserialize LLM output — falling back to empty deck. Payload (truncated): {Payload}",
+                raw.Length > 500 ? raw[..500] + "…" : raw);
             return null;
         }
     }
@@ -488,7 +490,7 @@ public class DeckGenerationService
         {
             var before = section.Cards.Count;
             section.Cards.RemoveAll(c =>
-                !BasicLandNames.Contains(c.Name) && !priceMap.ContainsKey(c.Name));
+                !MtgConstants.BasicLandNames.Contains(c.Name) && !priceMap.ContainsKey(c.Name));
             var removed = before - section.Cards.Count;
             if (removed > 0)
                 _logger.LogWarning("Section '{Cat}': removed {N} hallucinated card(s)",

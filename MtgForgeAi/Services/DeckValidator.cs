@@ -14,9 +14,6 @@ public record DeckValidationResult(
 /// </summary>
 public static class DeckValidator
 {
-    private static readonly HashSet<string> BasicLandNames = new(
-        ["Plains", "Island", "Swamp", "Mountain", "Forest", "Wastes"],
-        StringComparer.OrdinalIgnoreCase);
 
     public static DeckValidationResult Validate(List<DeckSection> sections, string format)
     {
@@ -40,7 +37,7 @@ public static class DeckValidator
     private static void CheckSingletonViolations(List<DeckCard> allCards, List<string> warnings)
     {
         var duplicates = allCards
-            .Where(c => !BasicLandNames.Contains(c.Name))
+            .Where(c => !MtgConstants.BasicLandNames.Contains(c.Name))
             .GroupBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
             .Where(g => g.Sum(c => c.Quantity) > 1);
 
@@ -59,9 +56,16 @@ public static class DeckValidator
                 .Where(s => s.Category.Contains(keyword, StringComparison.OrdinalIgnoreCase))
                 .Sum(s => s.Cards.Count);
 
+        // Use exact-match for draw to avoid "Draw" Contains matching "Card Draw" twice
+        int CountDrawSections() =>
+            sections
+                .Where(s => s.Category.Equals("Draw", StringComparison.OrdinalIgnoreCase) ||
+                            s.Category.Equals("Card Draw", StringComparison.OrdinalIgnoreCase))
+                .Sum(s => s.Cards.Count);
+
         var rampCount    = CountSection("Ramp");
         var removalCount = CountSection("Removal");
-        var drawCount    = CountSection("Draw") + CountSection("Card Draw");
+        var drawCount    = CountDrawSections();
         var landCount    = allCards
             .Where(c => c.TypeLine?.Contains("Land", StringComparison.OrdinalIgnoreCase) == true)
             .Sum(c => c.Quantity);
