@@ -8,8 +8,9 @@ public interface ILlmService
 {
     /// <summary>
     /// Send a chat completion request and return the full response text.
+    /// Set jsonMode to true to enable provider-level JSON output enforcement.
     /// </summary>
-    Task<string> ChatAsync(string systemPrompt, string userMessage, CancellationToken ct = default);
+    Task<string> ChatAsync(string systemPrompt, string userMessage, bool jsonMode = false, CancellationToken ct = default);
 
     /// <summary>
     /// Stream tokens as they arrive from the LLM.

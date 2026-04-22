@@ -33,12 +33,14 @@ public class OllamaLlmService : ILlmService
     public async Task<string> ChatAsync(
         string systemPrompt,
         string userMessage,
+        bool jsonMode = false,
         CancellationToken ct = default)
     {
         var payload = new OllamaChatRequest
         {
             Model = _model,
             Stream = false,
+            Format = jsonMode ? "json" : null,
             Messages =
             [
                 new OllamaMessage { Role = "system", Content = systemPrompt },
@@ -46,7 +48,7 @@ public class OllamaLlmService : ILlmService
             ],
             Options = new OllamaOptions
             {
-                Temperature = 0.7,
+                Temperature = 0.4,
                 NumCtx = 8192,      // Deck prompts are large; need room for candidates + JSON output
                 NumPredict = 4096   // Full deck JSON can be lengthy
             }
@@ -152,6 +154,7 @@ public class OllamaLlmService : ILlmService
         public string Model { get; set; } = "";
         public List<OllamaMessage> Messages { get; set; } = new();
         public bool Stream { get; set; }
+        public string? Format { get; set; }
         public OllamaOptions? Options { get; set; }
     }
 
@@ -163,7 +166,7 @@ public class OllamaLlmService : ILlmService
 
     private class OllamaOptions
     {
-        public double Temperature { get; set; } = 0.7;
+        public double Temperature { get; set; } = 0.4;
         public int NumCtx { get; set; } = 4096;
         public int NumPredict { get; set; } = 2048;
     }

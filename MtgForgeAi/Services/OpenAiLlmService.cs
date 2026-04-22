@@ -35,6 +35,7 @@ public class OpenAiLlmService : ILlmService
     public async Task<string> ChatAsync(
         string systemPrompt,
         string userMessage,
+        bool jsonMode = false,
         CancellationToken ct = default)
     {
         var payload = new ChatCompletionRequest
@@ -42,7 +43,8 @@ public class OpenAiLlmService : ILlmService
             Model = _model,
             Stream = false,
             MaxTokens = 4096,
-            Temperature = 0.7,
+            Temperature = 0.4,
+            ResponseFormat = jsonMode ? new ResponseFormat { Type = "json_object" } : null,
             Messages =
             [
                 new ChatMessage { Role = "system", Content = systemPrompt },
@@ -78,7 +80,7 @@ public class OpenAiLlmService : ILlmService
             Model = _model,
             Stream = true,
             MaxTokens = 4096,
-            Temperature = 0.7,
+            Temperature = 0.4,
             Messages =
             [
                 new ChatMessage { Role = "system", Content = systemPrompt },
@@ -141,7 +143,13 @@ public class OpenAiLlmService : ILlmService
         public List<ChatMessage> Messages { get; set; } = [];
         public bool Stream { get; set; }
         public int MaxTokens { get; set; } = 4096;
-        public double Temperature { get; set; } = 0.7;
+        public double Temperature { get; set; } = 0.4;
+        public ResponseFormat? ResponseFormat { get; set; }
+    }
+
+    private class ResponseFormat
+    {
+        public string Type { get; set; } = "json_object";
     }
 
     private class ChatMessage
