@@ -320,13 +320,26 @@ public class DeckGenerationService
             var before = section.Cards.Count;
             section.Cards.RemoveAll(c =>
                 !basicLands.Contains(c.Name) &&
-                !priceMap.ContainsKey(c.Name.ToLowerInvariant()));
+                !priceMap.ContainsKey(c.Name));
 
             var removed = before - section.Cards.Count;
             if (removed > 0)
                 _logger.LogWarning(
                     "Section '{Category}': removed {Count} hallucinated card(s) not found in candidate pool",
                     section.Category, removed);
+        }
+
+        // Validate the LLM-selected commander. User-supplied commanders (req.Commander) are trusted.
+        // If the LLM returned a commander name that isn't in the candidate pool, clear it so the
+        // resolution block below falls back to the first card in the Commander section instead.
+        if (string.IsNullOrWhiteSpace(req.Commander) &&
+            !string.IsNullOrWhiteSpace(parsed?.Commander) &&
+            !priceMap.ContainsKey(parsed.Commander))
+        {
+            _logger.LogWarning(
+                "LLM-selected commander '{Commander}' not found in candidate pool; falling back to Commander section",
+                parsed.Commander);
+            parsed!.Commander = null;
         }
 
         var totalCost = sections
