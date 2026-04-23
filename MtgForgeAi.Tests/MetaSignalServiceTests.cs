@@ -65,7 +65,7 @@ public class MetaSignalServiceTests
     public async Task GetTopAsync_RespectsLimit()
     {
         var signals = Enumerable.Range(1, 10)
-            .Select(i => new MetaSignal { CardName = $"Card{i}", Format = "commander", InclusionRate = i / 10.0 })
+            .Select(i => new MetaSignal { CardName = $"Card{i}", Format = "commander", InclusionRate = i * 0.1 })
             .ToList();
 
         var repo = BuildRepo(signals, null);

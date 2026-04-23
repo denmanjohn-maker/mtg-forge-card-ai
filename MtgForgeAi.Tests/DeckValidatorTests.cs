@@ -154,7 +154,7 @@ public class DeckValidatorTests
             new DeckSection("Ramp",      MakeCards("Ramp",    ramp)),
             new DeckSection("Removal",   MakeCards("Removal", removal)),
             new DeckSection("Card Draw", MakeCards("Draw",    draw)),
-            new DeckSection("Lands",     MakeCards("Basic Land", landCount, "Basic Land — Plains")),
+            new DeckSection("Lands",     MakeCards("Plains", landCount, "Basic Land — Plains")),
         ];
     }
 }
