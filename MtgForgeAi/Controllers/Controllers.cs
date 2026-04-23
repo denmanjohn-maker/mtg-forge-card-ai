@@ -106,12 +106,20 @@ public class HealthController : ControllerBase
 public class AdminController : ControllerBase
 {
     private readonly CardIngestionService _ingestion;
+    private readonly MetaSignalService _meta;
     private readonly ILogger<AdminController> _logger;
 
-    public AdminController(CardIngestionService ingestion, ILogger<AdminController> logger)
+    private static readonly HashSet<string> ValidFormats = new(StringComparer.OrdinalIgnoreCase)
+        { "commander", "standard", "modern", "legacy", "pioneer", "pauper", "vintage" };
+
+    public AdminController(
+        CardIngestionService ingestion,
+        MetaSignalService meta,
+        ILogger<AdminController> logger)
     {
         _ingestion = ingestion;
-        _logger = logger;
+        _meta      = meta;
+        _logger    = logger;
     }
 
     /// <summary>
@@ -142,5 +150,26 @@ public class AdminController : ControllerBase
             _logger.LogError(ex, "Card ingestion failed");
             return StatusCode(500, new { error = ex.Message });
         }
+    }
+
+    /// <summary>
+    /// Inspect the tournament meta signals currently stored for a format.
+    /// Populated by scripts/compute_meta_signals.py (external data feed — MTGTop8).
+    /// </summary>
+    [HttpGet("meta")]
+    public async Task<ActionResult<MetaSignalsResponse>> GetMetaSignals(
+        [FromQuery] string format,
+        [FromQuery] int limit,
+        CancellationToken ct)
+    {
+        var fmt = format?.Trim().ToLowerInvariant() ?? "";
+        if (!ValidFormats.Contains(fmt))
+            return BadRequest($"Invalid format '{format}'. Valid formats: {string.Join(", ", ValidFormats)}");
+
+        if (limit <= 0) limit = 50;
+        if (limit > 500) limit = 500;
+
+        var (signals, stats) = await _meta.GetTopAsync(fmt, limit, ct);
+        return Ok(new MetaSignalsResponse(fmt, stats, signals));
     }
 }

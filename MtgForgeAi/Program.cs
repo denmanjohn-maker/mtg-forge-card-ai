@@ -55,6 +55,10 @@ builder.Services.AddScoped<CardSearchService>();
 builder.Services.AddScoped<DeckGenerationService>();
 builder.Services.AddScoped<CardIngestionService>();
 
+// Tournament meta signals — reads from MongoDB collection populated by
+// scripts/compute_meta_signals.py. Singleton so its in-memory cache is shared.
+builder.Services.AddSingleton<MetaSignalService>();
+
 // CORS — open for local dev
 builder.Services.AddCors(options =>
 {

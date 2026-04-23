@@ -29,6 +29,21 @@ public class MongoService
             .FirstOrDefaultAsync(ct);
     }
 
+    public async Task<List<MtgCard>> GetCardsByNamesAsync(
+        IEnumerable<string> names, CancellationToken ct = default)
+    {
+        var distinct = names
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Select(n => n.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (distinct.Count == 0) return new List<MtgCard>();
+
+        var col    = _db.GetCollection<MtgCard>("cards");
+        var filter = Builders<MtgCard>.Filter.In(c => c.Name, distinct);
+        return await col.Find(filter).ToListAsync(ct);
+    }
+
     public async Task<List<MtgCard>> SearchCardsByColorAsync(
         List<string> colorIdentity,
         CancellationToken ct = default)
@@ -67,6 +82,80 @@ public class MongoService
         var col = _db.GetCollection<SavedDeck>("decks");
         var result = await col.DeleteOneAsync(d => d.Id == id, ct);
         return result.DeletedCount > 0;
+    }
+
+    // ─── Tournament Meta Signals ──────────────────────────────────────────────
+
+    private IMongoCollection<MetaSignal>      MetaSignals      => _db.GetCollection<MetaSignal>("meta_signals");
+    private IMongoCollection<MetaSignalStats> MetaSignalsStats => _db.GetCollection<MetaSignalStats>("meta_signal_stats");
+
+    /// <summary>
+    /// Returns the top N meta signals for a format, ordered by inclusion rate.
+    /// Safe when the collection is missing or empty — returns an empty list.
+    /// </summary>
+    public async Task<List<MetaSignal>> GetTopMetaSignalsAsync(
+        string format, int limit = 100, CancellationToken ct = default)
+    {
+        var filter = Builders<MetaSignal>.Filter.Eq(s => s.Format, format.ToLowerInvariant());
+        var sort   = Builders<MetaSignal>.Sort.Descending(s => s.InclusionRate);
+
+        try
+        {
+            return await MetaSignals.Find(filter).Sort(sort).Limit(limit).ToListAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to read meta_signals for {Format}", format);
+            return new List<MetaSignal>();
+        }
+    }
+
+    /// <summary>
+    /// Returns meta signals for an explicit set of card names (case-insensitive match on card_name_lc).
+    /// Used to enrich existing candidates without fetching the full top-N list.
+    /// </summary>
+    public async Task<Dictionary<string, MetaSignal>> GetMetaSignalsForCardsAsync(
+        string format, IEnumerable<string> cardNames, CancellationToken ct = default)
+    {
+        var normalized = cardNames
+            .Select(n => n?.Trim().ToLowerInvariant() ?? "")
+            .Where(n => n.Length > 0)
+            .Distinct()
+            .ToList();
+
+        if (normalized.Count == 0)
+            return new Dictionary<string, MetaSignal>(StringComparer.OrdinalIgnoreCase);
+
+        var filter = Builders<MetaSignal>.Filter.And(
+            Builders<MetaSignal>.Filter.Eq(s => s.Format, format.ToLowerInvariant()),
+            Builders<MetaSignal>.Filter.In(s => s.CardNameLc, normalized)
+        );
+
+        try
+        {
+            var docs = await MetaSignals.Find(filter).ToListAsync(ct);
+            return docs.ToDictionary(d => d.CardName, d => d, StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to read meta_signals subset for {Format}", format);
+            return new Dictionary<string, MetaSignal>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    public async Task<MetaSignalStats?> GetMetaSignalStatsAsync(string format, CancellationToken ct = default)
+    {
+        try
+        {
+            return await MetaSignalsStats
+                .Find(s => s.Format == format.ToLowerInvariant())
+                .FirstOrDefaultAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to read meta_signal_stats for {Format}", format);
+            return null;
+        }
     }
 
     // ─── Card Ingestion ───────────────────────────────────────────────────────
