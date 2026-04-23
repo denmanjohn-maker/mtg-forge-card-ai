@@ -1,0 +1,100 @@
+name: Ingest Card Data
+
+on:
+  # Run automatically every Sunday at midnight UTC
+  schedule:
+    - cron: "0 0 * * 0"
+
+  # Allow manual runs from the Actions tab with optional parameters
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Max cards to ingest (leave blank for full ~37k ingestion)"
+        required: false
+        default: ""
+      mode:
+        description: "Ingestion mode"
+        required: false
+        default: "full"
+        type: choice
+        options:
+          - full
+          - mongo-only
+          - qdrant-only
+
+jobs:
+  ingest:
+    name: Trigger card ingestion
+    runs-on: ubuntu-latest
+    timeout-minutes: 45  # full ingestion can take 5-30 min
+    permissions: {}  # this job only calls an external API — no repo/token access needed
+
+    steps:
+      - name: Build request body
+        id: body
+        run: |
+          LIMIT="${{ github.event.inputs.limit }}"
+          MODE="${{ github.event.inputs.mode }}"
+
+          # Build JSON body
+          if [ -n "$LIMIT" ]; then
+            if ! [[ "$LIMIT" =~ ^[0-9]+$ ]] || [ "$LIMIT" -le 0 ]; then
+              echo "::error::Input 'limit' must be a positive integer (got: '$LIMIT')"
+              exit 1
+            fi
+            LIMIT_FIELD=", \"limit\": $LIMIT"
+          else
+            LIMIT_FIELD=""
+          fi
+
+          case "$MODE" in
+            mongo-only)
+              MODE_FIELDS=", \"mongoOnly\": true"
+              ;;
+            qdrant-only)
+              MODE_FIELDS=", \"qdrantOnly\": true"
+              ;;
+            *)
+              MODE_FIELDS=""
+              ;;
+          esac
+
+          BODY="{${LIMIT_FIELD}${MODE_FIELDS}}"
+          # Strip leading comma that can appear when limit is empty
+          BODY=$(echo "$BODY" | sed 's/^{, /{/')
+
+          echo "body=$BODY" >> "$GITHUB_OUTPUT"
+          echo "Ingest request body: $BODY"
+
+      - name: Call ingest endpoint
+        id: ingest
+        run: |
+          RESPONSE=$(curl --silent --show-error --fail-with-body \
+            --max-time 2400 \
+            -X POST "${{ secrets.RAILWAY_API_URL }}/api/admin/ingest" \
+            -H "Content-Type: application/json" \
+            -d '${{ steps.body.outputs.body }}')
+
+          echo "response=$RESPONSE" >> "$GITHUB_OUTPUT"
+          echo "Ingest response: $RESPONSE"
+
+      - name: Write job summary
+        if: always()
+        run: |
+          RESPONSE='${{ steps.ingest.outputs.response }}'
+          echo "## 🃏 MTG Card Ingestion" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ '${{ steps.ingest.outcome }}' = 'success' ]; then
+            echo "✅ **Ingestion succeeded**" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "❌ **Ingestion failed**" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Request body:** \`${{ steps.body.outputs.body }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**API response:**" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          if ! echo "$RESPONSE" | python3 -m json.tool >> "$GITHUB_STEP_SUMMARY" 2>/dev/null; then
+            echo "$RESPONSE" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
