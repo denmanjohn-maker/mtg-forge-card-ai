@@ -40,6 +40,16 @@ MtgDeckForge App (frontend — separate repo)
 - `scripts/export_training_data.py` — exports saved decks from MongoDB as JSONL training pairs
 - `scripts/finetune.py` — LoRA fine-tuning on Llama 3.1 8B with Unsloth
 
+### Tournament meta signals (external data feed)
+
+- `scripts/compute_meta_signals.py` — reuses the MTGTop8 scrapers to compute per-format card-inclusion stats and upserts them into MongoDB (`meta_signals`, `meta_signal_stats`).
+- `MetaSignalService` loads those signals (5-minute in-memory cache) and hands them to `DeckGenerationService`, which:
+  - annotates candidate cards in prompts with a tier (🏆 ≥40% / ★ ≥20% / · ≥10%) and inclusion rate,
+  - orders each category by inclusion rate first so meta-proven cards surface at the top,
+  - injects up to 20 top-meta cards missing from the RAG pool (color-identity filtered).
+- Disable per request with `"useMetaSignals": false` on `POST /api/decks/generate`.
+- Inspect via `GET /api/admin/meta?format=modern&limit=50`.
+
 ---
 
 ## Prerequisites
@@ -200,6 +210,7 @@ LLM__ApiKey=your-key
 | `DELETE` | `/api/decks/{id}` | Delete a saved deck |
 | `POST` | `/api/cards/search` | Semantic card search (query, colors, maxPrice, limit, format) |
 | `POST` | `/api/admin/ingest` | Ingest cards from Scryfall (mongoOnly, qdrantOnly, limit) |
+| `GET` | `/api/admin/meta` | Inspect tournament meta signals (`?format=modern&limit=50`) |
 | `GET` | `/api/health` | Health check (LLM, MongoDB, Qdrant) |
 
 ### Supported formats
@@ -296,6 +307,26 @@ Then update `appsettings.json`:
 ```json
 { "Ollama": { "Model": "mtg-deck-builder" } }
 ```
+
+---
+
+## Refreshing Tournament Meta Signals
+
+```bash
+cd scripts
+pip install -r requirements.txt
+
+# Default: all major formats, 150 decks each
+python compute_meta_signals.py
+
+# Or target specific formats / increase sample size
+python compute_meta_signals.py --formats modern pioneer --limit 300
+
+# Dry-run to a local JSON file (no Mongo writes)
+python compute_meta_signals.py --dry-run --out ./data/meta.json
+```
+
+The script writes to the `meta_signals` and `meta_signal_stats` MongoDB collections. The .NET API picks up the new data automatically on next generation (5-minute cache TTL). Re-run periodically — weekly is a reasonable cadence.
 
 Or to host the fine-tuned model on Together.ai:
 1. Upload the model to Together.ai

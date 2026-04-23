@@ -16,17 +16,24 @@ public class DeckGenerationService
     private readonly CardSearchService _search;
     private readonly ILlmService _llm;
     private readonly MongoService _mongo;
+    private readonly MetaSignalService _meta;
     private readonly ILogger<DeckGenerationService> _logger;
+
+    // Cap how many missing top-meta cards we inject into the candidate pool
+    // per generation. Small enough not to drown out the RAG results.
+    private const int MaxMetaInjection = 20;
 
     public DeckGenerationService(
         CardSearchService search,
         ILlmService llm,
         MongoService mongo,
+        MetaSignalService meta,
         ILogger<DeckGenerationService> logger)
     {
         _search = search;
         _llm    = llm;
         _mongo  = mongo;
+        _meta   = meta;
         _logger = logger;
     }
 
@@ -49,6 +56,17 @@ public class DeckGenerationService
             commanderOracleText = commanderCard?.OracleText;
         }
 
+        // Step 2b: Tournament meta signals (optional). Annotate existing candidates
+        // and inject up to MaxMetaInjection top-meta cards that weren't retrieved.
+        Dictionary<string, MetaSignal> metaSignals =
+            new(StringComparer.OrdinalIgnoreCase);
+        MetaSignalStats? metaStats = null;
+        if (req.UseMetaSignals)
+        {
+            (candidates, metaSignals, metaStats) =
+                await EnrichWithMetaSignalsAsync(req, candidates, ct);
+        }
+
         var priceMap = candidates.ToDictionary(
             c => c.Name.ToLowerInvariant(), c => c, StringComparer.OrdinalIgnoreCase);
 
@@ -61,12 +79,13 @@ public class DeckGenerationService
         if (isCommander)
         {
             (sections, resolvedCommander, reasoning) =
-                await GenerateCommanderTwoPhaseAsync(req, candidates, priceMap, commanderOracleText, ct);
+                await GenerateCommanderTwoPhaseAsync(
+                    req, candidates, priceMap, commanderOracleText, metaSignals, metaStats, ct);
         }
         else
         {
             var sys  = BuildSystemPrompt(req.Format, !string.IsNullOrWhiteSpace(req.Commander));
-            var user = BuildUserPrompt(req, candidates, commanderOracleText);
+            var user = BuildUserPrompt(req, candidates, commanderOracleText, metaSignals, metaStats);
             var raw  = await _llm.ChatAsync(sys, user, jsonMode: true, ct);
             _logger.LogInformation("LLM response ({Len} chars)", raw.Length);
             (sections, resolvedCommander, reasoning) = ParseDeckOutput(raw, req, priceMap);
@@ -114,6 +133,104 @@ public class DeckGenerationService
         return deck;
     }
 
+    // ─── Meta Signal Enrichment ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Looks up tournament meta signals for the retrieved candidates and, when
+    /// top meta cards are missing from the candidate pool, hydrates them from
+    /// MongoDB and appends them to the pool. Returns the (possibly expanded)
+    /// candidate list, a name→signal map, and the format stats doc.
+    ///
+    /// All errors degrade silently — the deck pipeline must keep working when
+    /// meta data is unavailable.
+    /// </summary>
+    private async Task<(List<CardSearchResult> Candidates, Dictionary<string, MetaSignal> Signals, MetaSignalStats? Stats)>
+        EnrichWithMetaSignalsAsync(
+            DeckRequest req,
+            List<CardSearchResult> candidates,
+            CancellationToken ct)
+    {
+        var emptyMap = new Dictionary<string, MetaSignal>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            var (topSignals, stats) = await _meta.GetTopAsync(req.Format, limit: 500, ct: ct);
+            if (topSignals.Count == 0)
+                return (candidates, emptyMap, null);
+
+            var signalByName = topSignals.ToDictionary(
+                s => s.CardName, s => s, StringComparer.OrdinalIgnoreCase);
+
+            // 1) Annotate existing candidates
+            var candidateNames = new HashSet<string>(
+                candidates.Select(c => c.Name), StringComparer.OrdinalIgnoreCase);
+            var annotations = signalByName
+                .Where(kv => candidateNames.Contains(kv.Key))
+                .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
+
+            // 2) Inject up to MaxMetaInjection top-meta cards missing from the pool.
+            //    Filter to the requested color identity when provided.
+            var colorSet = req.ColorIdentity?.Count > 0
+                ? new HashSet<string>(req.ColorIdentity, StringComparer.OrdinalIgnoreCase)
+                : null;
+
+            var missingTop = topSignals
+                .Where(s => !candidateNames.Contains(s.CardName))
+                .Take(MaxMetaInjection * 3) // fetch extra so color filter leaves enough
+                .Select(s => s.CardName)
+                .ToList();
+
+            if (missingTop.Count > 0)
+            {
+                var fetched = await _mongo.GetCardsByNamesAsync(missingTop, ct);
+                var added = 0;
+                foreach (var card in fetched.OrderByDescending(c =>
+                            signalByName.TryGetValue(c.Name, out var s) ? s.InclusionRate : 0.0))
+                {
+                    if (added >= MaxMetaInjection) break;
+
+                    if (colorSet != null && card.ColorIdentity.Any(ci => !colorSet.Contains(ci)))
+                        continue; // violates requested color identity
+
+                    var sig = signalByName[card.Name];
+                    candidates.Add(new CardSearchResult(
+                        Name:        card.Name,
+                        TypeLine:    card.TypeLine ?? "",
+                        OracleText:  card.OracleText,
+                        ManaCost:    card.ManaCost ?? "",
+                        Cmc:         card.Cmc,
+                        PriceUsd:    ParsePrice(card.Prices?.Usd),
+                        ImageUri:    card.ImageUris?.Normal,
+                        ScryfallUri: card.ScryfallUri,
+                        Score:       0.0 // signals that this came from meta injection
+                    ));
+                    annotations[card.Name] = sig;
+                    added++;
+                }
+
+                if (added > 0)
+                    _logger.LogInformation(
+                        "Meta signals: injected {Added} top-meta cards missing from RAG pool", added);
+            }
+
+            _logger.LogInformation(
+                "Meta signals: {Anno} of {Cand} candidates are tournament-known (format={Format}, sample={Sample})",
+                annotations.Count, candidates.Count, req.Format, stats?.SampleSize ?? 0);
+
+            return (candidates, annotations, stats);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Meta signal enrichment failed — continuing without");
+            return (candidates, emptyMap, null);
+        }
+    }
+
+    private static double ParsePrice(string? usd) =>
+        double.TryParse(usd, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out var p)
+            ? p : 0.0;
+
     // ─── Two-Phase Commander Generation ──────────────────────────────────────
 
     private async Task<(List<DeckSection> Sections, string? Commander, string Reasoning)>
@@ -122,6 +239,8 @@ public class DeckGenerationService
             List<CardSearchResult> candidates,
             Dictionary<string, CardSearchResult> priceMap,
             string? commanderOracleText,
+            Dictionary<string, MetaSignal> metaSignals,
+            MetaSignalStats? metaStats,
             CancellationToken ct)
     {
         // Phase 1: Mana base (lands + ramp)
@@ -132,7 +251,7 @@ public class DeckGenerationService
             Respond ONLY with valid JSON: {"sections":[{"category":"Ramp","cards":[...]},{"category":"Lands","cards":[...]}]}
             """;
 
-        var phase1User = BuildManaBaseUserPrompt(req, candidates, commanderOracleText);
+        var phase1User = BuildManaBaseUserPrompt(req, candidates, commanderOracleText, metaSignals);
         var phase1Raw  = await _llm.ChatAsync(phase1System, phase1User, jsonMode: true, ct);
         _logger.LogInformation("Phase 1 response ({Len} chars)", phase1Raw.Length);
 
@@ -157,7 +276,8 @@ public class DeckGenerationService
             """;
 
         var phase2User = BuildSpellSuiteUserPrompt(
-            req, candidates, phase1Sections, remainingSlots, remainingBudget, commanderOracleText);
+            req, candidates, phase1Sections, remainingSlots, remainingBudget,
+            commanderOracleText, metaSignals, metaStats);
         var phase2Raw = await _llm.ChatAsync(phase2System, phase2User, jsonMode: true, ct);
         _logger.LogInformation("Phase 2 response ({Len} chars)", phase2Raw.Length);
 
@@ -199,7 +319,8 @@ public class DeckGenerationService
     private static string BuildManaBaseUserPrompt(
         DeckRequest req,
         List<CardSearchResult> candidates,
-        string? commanderOracleText)
+        string? commanderOracleText,
+        Dictionary<string, MetaSignal>? metaSignals)
     {
         var sb = new StringBuilder();
         var colors         = req.ColorIdentity?.Count > 0 ? string.Join(", ", req.ColorIdentity) : "all colors";
@@ -216,7 +337,7 @@ public class DeckGenerationService
         sb.AppendLine();
         sb.AppendLine("Select EXACTLY: 36-38 lands and 8-10 ramp spells.");
         sb.AppendLine();
-        AppendCandidates(sb, candidates, perCardBudget, prioritizeLands: true, excludeLands: false);
+        AppendCandidates(sb, candidates, perCardBudget, prioritizeLands: true, excludeLands: false, metaSignals: metaSignals);
         sb.AppendLine("CRITICAL: Choose only from this list. Basic lands are always available for free.");
         return sb.ToString();
     }
@@ -227,7 +348,9 @@ public class DeckGenerationService
         List<DeckSection> phase1Sections,
         int remainingSlots,
         double remainingBudget,
-        string? commanderOracleText)
+        string? commanderOracleText,
+        Dictionary<string, MetaSignal>? metaSignals,
+        MetaSignalStats? metaStats)
     {
         var sb      = new StringBuilder();
         var colors  = req.ColorIdentity?.Count > 0 ? string.Join(", ", req.ColorIdentity) : "all colors";
@@ -237,6 +360,7 @@ public class DeckGenerationService
         sb.AppendLine($"Budget remaining: ${remainingBudget:F2}  |  Slots to fill: {remainingSlots}  |  Avg/card: ${perCard:F2}");
         if (commanderOracleText != null)
             sb.AppendLine($"Commander ability: \"{commanderOracleText}\"");
+        AppendMetaSummary(sb, metaSignals, metaStats);
         sb.AppendLine();
         sb.AppendLine("Mana base committed — do NOT include these:");
         foreach (var section in phase1Sections)
@@ -258,7 +382,7 @@ public class DeckGenerationService
                         !c.TypeLine.Contains("Land", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        AppendCandidates(sb, spellPool, perCard, prioritizeLands: false, excludeLands: true);
+        AppendCandidates(sb, spellPool, perCard, prioritizeLands: false, excludeLands: true, metaSignals: metaSignals);
         sb.AppendLine("CRITICAL: No lands. All quantities must be 1. Choose only from the list above.");
         return sb.ToString();
     }
@@ -332,7 +456,9 @@ public class DeckGenerationService
     private static string BuildUserPrompt(
         DeckRequest req,
         List<CardSearchResult> candidates,
-        string? commanderOracleText = null)
+        string? commanderOracleText = null,
+        Dictionary<string, MetaSignal>? metaSignals = null,
+        MetaSignalStats? metaStats = null)
     {
         var sb            = new StringBuilder();
         var isCommander   = req.Format.Equals("commander", StringComparison.OrdinalIgnoreCase);
@@ -360,9 +486,10 @@ public class DeckGenerationService
         sb.AppendLine($"- Power Level: {req.PowerLevel}/10");
         if (!string.IsNullOrWhiteSpace(req.ExtraContext))
             sb.AppendLine($"- Notes: {req.ExtraContext}");
+        AppendMetaSummary(sb, metaSignals, metaStats);
         sb.AppendLine();
 
-        AppendCandidates(sb, candidates, perCardBudget, prioritizeLands: false, excludeLands: false);
+        AppendCandidates(sb, candidates, perCardBudget, prioritizeLands: false, excludeLands: false, metaSignals: metaSignals);
         sb.AppendLine($"CRITICAL: Choose only from the list. Basic lands are free. Total ≤ ${req.Budget:F2}.");
         return sb.ToString();
     }
@@ -374,10 +501,11 @@ public class DeckGenerationService
         List<CardSearchResult> candidates,
         double perCardBudget,
         bool prioritizeLands,
-        bool excludeLands)
+        bool excludeLands,
+        Dictionary<string, MetaSignal>? metaSignals = null)
     {
         if (perCardBudget > 0)
-            sb.AppendLine($"Available cards — budget target ~${perCardBudget:F2}/card (cards marked ⚠ exceed 3× target):");
+            sb.AppendLine($"Available cards — budget target ~${perCardBudget:F2}/card (cards marked ⚠ exceed 3× target, 🏆/★/· = tournament meta tier):");
         else
             sb.AppendLine("Available cards (choose ONLY from this list):");
         sb.AppendLine();
@@ -392,17 +520,60 @@ public class DeckGenerationService
         {
             if (excludeLands && group.Key == "Lands") continue;
             sb.AppendLine($"[{group.Key}]");
-            foreach (var card in group.OrderBy(c => c.PriceUsd).Take(30))
+
+            // Order by meta inclusion rate (desc) first, then by price. This
+            // surfaces tournament-proven cards at the top of each category.
+            var ordered = group
+                .OrderByDescending(c => MetaRate(metaSignals, c.Name))
+                .ThenBy(c => c.PriceUsd)
+                .Take(30);
+
+            foreach (var card in ordered)
             {
                 var price     = card.PriceUsd > 0 ? $"${card.PriceUsd:F2}" : "free";
                 var overBudget = perCardBudget > 0 && card.PriceUsd > perCardBudget * 3 ? " ⚠" : "";
                 var text      = card.OracleText?.Length > 200
                     ? card.OracleText[..200] + "..."
                     : card.OracleText ?? "";
-                sb.AppendLine($"  - {card.Name} ({card.ManaCost}) [{price}{overBudget}]: {text}");
+
+                var metaPrefix = "";
+                if (metaSignals != null && metaSignals.TryGetValue(card.Name, out var sig))
+                {
+                    var tier = MetaSignalService.TierFor(sig.InclusionRate);
+                    if (tier.Length > 0)
+                        metaPrefix = $"{tier} {sig.InclusionRate * 100:F0}% ";
+                }
+
+                sb.AppendLine($"  - {metaPrefix}{card.Name} ({card.ManaCost}) [{price}{overBudget}]: {text}");
             }
             sb.AppendLine();
         }
+    }
+
+    private static double MetaRate(Dictionary<string, MetaSignal>? signals, string name)
+        => signals != null && signals.TryGetValue(name, out var s) ? s.InclusionRate : 0.0;
+
+    private static void AppendMetaSummary(
+        StringBuilder sb,
+        Dictionary<string, MetaSignal>? metaSignals,
+        MetaSignalStats? metaStats)
+    {
+        if (metaSignals == null || metaSignals.Count == 0)
+            return;
+
+        var hits = metaSignals
+            .Values
+            .OrderByDescending(s => s.InclusionRate)
+            .Take(10)
+            .ToList();
+        if (hits.Count == 0) return;
+
+        var sample = metaStats?.SampleSize ?? hits[0].SampleSize;
+        sb.AppendLine($"- Tournament meta (sample: {sample} decks) — {metaSignals.Count} candidates are proven in recent tournaments.");
+        var topLine = string.Join(", ",
+            hits.Take(6).Select(s => $"{s.CardName} {s.InclusionRate * 100:F0}%"));
+        sb.AppendLine($"  Top meta cards in this pool: {topLine}.");
+        sb.AppendLine("  Prefer these when they fit the strategy, but don't force them in at the expense of synergy.");
     }
 
     // ─── Parse Helpers ────────────────────────────────────────────────────────

@@ -12,7 +12,8 @@ public record DeckRequest(
     int PowerLevel,          // 1–10
     string? Commander = null,            // Optional — if omitted for Commander format, the LLM will choose an appropriate commander
     List<string>? ColorIdentity = null,  // Required for Commander; optional color filter for others
-    string? ExtraContext = null          // e.g. "focus on combo", "avoid infinite loops"
+    string? ExtraContext = null,         // e.g. "focus on combo", "avoid infinite loops"
+    bool UseMetaSignals = true           // Incorporate tournament meta signals from MongoDB when available
 );
 
 public record DeckResponse(
@@ -151,6 +152,86 @@ public class CardImageUris
     [BsonElement("art_crop")]
     public string? ArtCrop { get; set; }
 }
+
+// ─── Tournament Meta Signals ──────────────────────────────────────────────────
+
+/// <summary>
+/// Per-card inclusion statistics derived from an external tournament data feed
+/// (currently MTGTop8 via scripts/compute_meta_signals.py). One document per
+/// (format, card).
+/// </summary>
+public class MetaSignal
+{
+    [BsonId]
+    [BsonRepresentation(BsonType.ObjectId)]
+    public string? Id { get; set; }
+
+    [BsonElement("format")]
+    public string Format { get; set; } = "";
+
+    [BsonElement("card_name")]
+    public string CardName { get; set; } = "";
+
+    [BsonElement("card_name_lc")]
+    public string CardNameLc { get; set; } = "";
+
+    [BsonElement("sample_size")]
+    public int SampleSize { get; set; }
+
+    [BsonElement("inclusion_count")]
+    public int InclusionCount { get; set; }
+
+    [BsonElement("inclusion_rate")]
+    public double InclusionRate { get; set; }
+
+    [BsonElement("top8_count")]
+    public int Top8Count { get; set; }
+
+    [BsonElement("top8_rate")]
+    public double Top8Rate { get; set; }
+
+    [BsonElement("avg_placement")]
+    [BsonIgnoreIfNull]
+    public double? AvgPlacement { get; set; }
+
+    [BsonElement("archetypes")]
+    public List<string> Archetypes { get; set; } = new();
+
+    [BsonElement("updated_at")]
+    public string UpdatedAt { get; set; } = "";
+}
+
+/// <summary>Per-format summary document written by the aggregator.</summary>
+public class MetaSignalStats
+{
+    [BsonId]
+    [BsonRepresentation(BsonType.ObjectId)]
+    public string? Id { get; set; }
+
+    [BsonElement("format")]
+    public string Format { get; set; } = "";
+
+    [BsonElement("sample_size")]
+    public int SampleSize { get; set; }
+
+    [BsonElement("unique_cards")]
+    public int UniqueCards { get; set; }
+
+    [BsonElement("min_inclusions")]
+    public int MinInclusions { get; set; }
+
+    [BsonElement("include_sideboard")]
+    public bool IncludeSideboard { get; set; }
+
+    [BsonElement("updated_at")]
+    public string UpdatedAt { get; set; } = "";
+}
+
+public record MetaSignalsResponse(
+    string Format,
+    MetaSignalStats? Stats,
+    List<MetaSignal> Signals
+);
 
 // ─── Saved Deck ───────────────────────────────────────────────────────────────
 
