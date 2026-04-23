@@ -148,7 +148,7 @@ public class CardIngestionService
         return scryfallCards.Select(MapToMtgCard).ToList();
     }
 
-    private static MtgCard MapToMtgCard(ScryfallCard sc) => new()
+    internal static MtgCard MapToMtgCard(ScryfallCard sc) => new()
     {
         ScryfallId = sc.Id ?? "",
         Name = sc.Name ?? "",
@@ -185,7 +185,7 @@ public class CardIngestionService
     /// Uses SHA-256 to produce a deterministic 64-bit hash, avoiding collisions
     /// that can occur with GetHashCode() % modulo approaches.
     /// </summary>
-    private static ulong StablePointId(string scryfallId)
+    internal static ulong StablePointId(string scryfallId)
     {
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(scryfallId));
         return BitConverter.ToUInt64(hash, 0);
@@ -272,7 +272,7 @@ public class CardIngestionService
         }
     }
 
-    private static string BuildCardText(MtgCard card)
+    internal static string BuildCardText(MtgCard card)
     {
         var parts = new[]
         {
@@ -289,7 +289,7 @@ public class CardIngestionService
         return string.Join(" | ", parts.Where(p => !string.IsNullOrWhiteSpace(p.Trim(' ', '|'))));
     }
 
-    private static Dictionary<string, Value> BuildPayload(MtgCard card)
+    internal static Dictionary<string, Value> BuildPayload(MtgCard card)
     {
         var priceUsd = double.TryParse(card.Prices?.Usd, out var p) ? p : 0.0;
 
@@ -326,12 +326,12 @@ public class CardIngestionService
 
     // ─── Scryfall DTOs ────────────────────────────────────────────────────────
 
-    private class ScryfallBulkDataResponse
+    internal class ScryfallBulkDataResponse
     {
         public List<ScryfallBulkDataEntry>? Data { get; set; }
     }
 
-    private class ScryfallBulkDataEntry
+    internal class ScryfallBulkDataEntry
     {
         public string Type { get; set; } = "";
 
@@ -339,7 +339,7 @@ public class CardIngestionService
         public string DownloadUri { get; set; } = "";
     }
 
-    private class ScryfallCard
+    internal class ScryfallCard
     {
         public string? Id { get; set; }
         public string? Name { get; set; }
@@ -379,7 +379,7 @@ public class CardIngestionService
         public Dictionary<string, string>? Legalities { get; set; }
     }
 
-    private class ScryfallPrices
+    internal class ScryfallPrices
     {
         public string? Usd { get; set; }
 
@@ -387,7 +387,7 @@ public class CardIngestionService
         public string? UsdFoil { get; set; }
     }
 
-    private class ScryfallImageUris
+    internal class ScryfallImageUris
     {
         public string? Normal { get; set; }
         public string? Small { get; set; }
