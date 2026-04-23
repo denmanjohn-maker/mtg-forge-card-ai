@@ -105,7 +105,8 @@ public class HealthController : ControllerBase
 [Route("api/[controller]")]
 public class AdminController : ControllerBase
 {
-    private readonly CardIngestionService _ingestion;
+    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IHostApplicationLifetime _appLifetime;
     private readonly MetaSignalService _meta;
     private readonly ILogger<AdminController> _logger;
 
@@ -113,43 +114,61 @@ public class AdminController : ControllerBase
         { "commander", "standard", "modern", "legacy", "pioneer", "pauper", "vintage" };
 
     public AdminController(
-        CardIngestionService ingestion,
+        IServiceScopeFactory scopeFactory,
+        IHostApplicationLifetime appLifetime,
         MetaSignalService meta,
         ILogger<AdminController> logger)
     {
-        _ingestion = ingestion;
-        _meta      = meta;
-        _logger    = logger;
+        _scopeFactory = scopeFactory;
+        _appLifetime  = appLifetime;
+        _meta         = meta;
+        _logger       = logger;
     }
 
     /// <summary>
-    /// Ingest cards from Scryfall into MongoDB and Qdrant.
-    /// This is a long-running operation (5-30+ minutes depending on card count and embedding speed).
+    /// Starts card ingestion from Scryfall into MongoDB and Qdrant in the background.
+    /// Returns 202 Accepted immediately. Ingestion is a long-running operation
+    /// (5-30+ minutes) and is decoupled from the HTTP connection so that client
+    /// disconnects or proxy timeouts do not abort it mid-run.
     /// </summary>
     [HttpPost("ingest")]
-    public async Task<ActionResult<IngestionResult>> Ingest(
-        [FromBody] IngestionRequest? req,
-        CancellationToken ct)
+    public IActionResult Ingest([FromBody] IngestionRequest? req)
     {
+        var mongoOnly  = req?.MongoOnly  ?? false;
+        var qdrantOnly = req?.QdrantOnly ?? false;
+        var limit      = req?.Limit;
+
         _logger.LogInformation(
-            "Starting card ingestion (mongoOnly={MongoOnly}, qdrantOnly={QdrantOnly}, limit={Limit})",
-            req?.MongoOnly ?? false, req?.QdrantOnly ?? false, req?.Limit);
+            "Queuing card ingestion (mongoOnly={MongoOnly}, qdrantOnly={QdrantOnly}, limit={Limit})",
+            mongoOnly, qdrantOnly, limit);
 
-        try
+        // Run ingestion in the background, independent of the HTTP request lifetime.
+        // Use the application-stopping token so the job is cancelled cleanly on shutdown,
+        // but will not be interrupted by a client disconnect or proxy timeout.
+        var appStopping = _appLifetime.ApplicationStopping;
+        _ = Task.Run(async () =>
         {
-            var result = await _ingestion.IngestAsync(
-                mongoOnly: req?.MongoOnly ?? false,
-                qdrantOnly: req?.QdrantOnly ?? false,
-                limit: req?.Limit,
-                ct: ct);
+            using var scope = _scopeFactory.CreateScope();
+            var ingestion   = scope.ServiceProvider.GetRequiredService<CardIngestionService>();
+            try
+            {
+                var result = await ingestion.IngestAsync(mongoOnly, qdrantOnly, limit, appStopping);
+                _logger.LogInformation(
+                    "Ingestion complete: {Downloaded} downloaded, {Mongo} mongo, {Qdrant} qdrant, {Elapsed:F1}s",
+                    result.TotalCardsDownloaded, result.MongoCardsUpserted,
+                    result.QdrantVectorsUpserted, result.ElapsedSeconds);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning("Card ingestion cancelled (application shutting down)");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Card ingestion failed");
+            }
+        }, appStopping);
 
-            return Ok(result);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Card ingestion failed");
-            return StatusCode(500, new { error = ex.Message });
-        }
+        return Accepted(new { message = "Ingestion started in the background. Check application logs for progress and results." });
     }
 
     /// <summary>

@@ -217,6 +217,7 @@ public class CardIngestionService
                 catch (Exception ex)
                 {
                     _logger.LogWarning("Failed to embed card '{Name}': {Error}", card.Name, ex.Message);
+                    if (ct.IsCancellationRequested) break;
                     continue;
                 }
 
@@ -231,15 +232,17 @@ public class CardIngestionService
                 });
             }
 
+            // Flush any already-embedded points in this batch.
+            // CancellationToken.None is intentional: avoid losing successfully-embedded
+            // cards just because cancellation was requested mid-batch.
             if (points.Count > 0)
             {
-                await _qdrant.UpsertAsync(QdrantCollection, points, cancellationToken: ct);
+                await _qdrant.UpsertAsync(QdrantCollection, points, cancellationToken: CancellationToken.None);
                 upserted += points.Count;
             }
 
             if (i % (BatchSize * 10) == 0 && i > 0)
-                _logger.LogInformation("Qdrant progress: {Count}/{Total} cards embedded", i, cards.Count);
-        }
+                _logger.LogInformation("Qdrant progress: {Count}/{Total} cards embedded", i, cards.Count);        }
 
         return upserted;
     }
