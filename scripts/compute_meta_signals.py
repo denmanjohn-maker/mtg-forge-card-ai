@@ -221,14 +221,17 @@ def upsert_to_mongo(
             f"/ matched {result.matched_count}"
         )
 
-    # Drop stale card signals for this format that we didn't observe this run
+    # Drop stale card signals for this format that we didn't observe this run.
+    # Always prune when the run produced any sample — otherwise filters like
+    # --min-inclusions can leave behind signals from previous runs that the
+    # API would continue to serve despite stats reporting unique_cards=0.
     fmt = stats["format"]
     kept = {d["card_name_lc"] for d in docs}
-    if kept:
-        deleted = signals.delete_many({
-            "format": fmt,
-            "card_name_lc": {"$nin": list(kept)},
-        }).deleted_count
+    if stats["sample_size"] > 0:
+        delete_filter: dict = {"format": fmt}
+        if kept:
+            delete_filter["card_name_lc"] = {"$nin": list(kept)}
+        deleted = signals.delete_many(delete_filter).deleted_count
         if deleted:
             print(f"  Mongo: pruned {deleted} stale signals for {fmt}")
 

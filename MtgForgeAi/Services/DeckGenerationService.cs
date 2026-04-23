@@ -504,10 +504,16 @@ public class DeckGenerationService
         bool excludeLands,
         Dictionary<string, MetaSignal>? metaSignals = null)
     {
+        var hasMeta = metaSignals is { Count: > 0 };
         if (perCardBudget > 0)
-            sb.AppendLine($"Available cards — budget target ~${perCardBudget:F2}/card (cards marked ⚠ exceed 3× target, 🏆/★/· = tournament meta tier):");
+        {
+            var metaLegend = hasMeta ? ", 🏆/★/· = tournament meta tier" : "";
+            sb.AppendLine($"Available cards — budget target ~${perCardBudget:F2}/card (cards marked ⚠ exceed 3× target{metaLegend}):");
+        }
         else
+        {
             sb.AppendLine("Available cards (choose ONLY from this list):");
+        }
         sb.AppendLine();
 
         var grouped = candidates

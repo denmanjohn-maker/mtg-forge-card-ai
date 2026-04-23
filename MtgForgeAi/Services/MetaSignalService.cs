@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using MtgForgeAi.Models;
 
 namespace MtgForgeAi.Services;
@@ -16,12 +17,15 @@ public class MetaSignalService
     private readonly MongoService _mongo;
     private readonly ILogger<MetaSignalService> _logger;
 
-    // Per-format cache: (expiresAt, topSignalsByName)
-    private readonly Dictionary<string, (DateTime ExpiresAt, List<MetaSignal> Signals, MetaSignalStats? Stats)> _cache
+    // Per-format cache. ConcurrentDictionary so the TTL fast-path read
+    // (outside any lock) is safe under concurrent writes.
+    private readonly ConcurrentDictionary<string, CacheEntry> _cache
         = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _cacheLock = new(1, 1);
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(5);
     private const int DefaultCacheLimit = 500;
+
+    private sealed record CacheEntry(DateTime ExpiresAt, List<MetaSignal> Signals, MetaSignalStats? Stats);
 
     public MetaSignalService(MongoService mongo, ILogger<MetaSignalService> logger)
     {
@@ -100,7 +104,7 @@ public class MetaSignalService
             var signals = signalsTask.Result;
             var stats   = statsTask.Result;
 
-            _cache[format] = (DateTime.UtcNow + CacheTtl, signals, stats);
+            _cache[format] = new CacheEntry(DateTime.UtcNow + CacheTtl, signals, stats);
 
             if (signals.Count > 0)
                 _logger.LogInformation(
