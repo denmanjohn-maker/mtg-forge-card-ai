@@ -36,7 +36,9 @@ public class OllamaEmbedService
 
         var baseUrl = config["Ollama:BaseUrl"] ?? "http://localhost:11434";
         _http.BaseAddress = new Uri(baseUrl);
-        _http.Timeout = TimeSpan.FromSeconds(30);
+
+        var timeoutSeconds = int.TryParse(config["Ollama:EmbedTimeoutSeconds"], out var t) && t > 0 ? t : 120;
+        _http.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
     }
 
     public async Task<float[]> EmbedAsync(string text, CancellationToken ct = default)
