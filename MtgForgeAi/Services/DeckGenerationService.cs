@@ -17,23 +17,31 @@ public class DeckGenerationService
     private readonly ILlmService _llm;
     private readonly MongoService _mongo;
     private readonly MetaSignalService _meta;
+    private readonly ThemedSetService _themed;
     private readonly ILogger<DeckGenerationService> _logger;
 
     // Cap how many missing top-meta cards we inject into the candidate pool
     // per generation. Small enough not to drown out the RAG results.
     private const int MaxMetaInjection = 20;
 
+    // Cap how many cards from a detected themed product (Universes Beyond
+    // sets like Avatar: TLA, Warhammer 40K) we inject. Larger than meta
+    // injection because the user has explicitly asked for the theme.
+    private const int MaxThemedInjection = 40;
+
     public DeckGenerationService(
         CardSearchService search,
         ILlmService llm,
         MongoService mongo,
         MetaSignalService meta,
+        ThemedSetService themed,
         ILogger<DeckGenerationService> logger)
     {
         _search = search;
         _llm    = llm;
         _mongo  = mongo;
         _meta   = meta;
+        _themed = themed;
         _logger = logger;
     }
 
@@ -67,6 +75,13 @@ public class DeckGenerationService
                 await EnrichWithMetaSignalsAsync(req, candidates, ct);
         }
 
+        // Step 2c: Themed product detection. If the user mentioned a Universes
+        // Beyond product (Avatar: TLA, Warhammer 40K, TMNT, etc.) in the theme
+        // or extra context, inject cards from those sets so the LLM can feature
+        // them in the deck.
+        List<DetectedTheme> detectedThemes;
+        (candidates, detectedThemes) = await EnrichWithThemedCardsAsync(req, candidates, ct);
+
         var priceMap = candidates.ToDictionary(
             c => c.Name.ToLowerInvariant(), c => c, StringComparer.OrdinalIgnoreCase);
 
@@ -80,12 +95,12 @@ public class DeckGenerationService
         {
             (sections, resolvedCommander, reasoning) =
                 await GenerateCommanderTwoPhaseAsync(
-                    req, candidates, priceMap, commanderOracleText, metaSignals, metaStats, ct);
+                    req, candidates, priceMap, commanderOracleText, metaSignals, metaStats, detectedThemes, ct);
         }
         else
         {
             var sys  = BuildSystemPrompt(req.Format, !string.IsNullOrWhiteSpace(req.Commander));
-            var user = BuildUserPrompt(req, candidates, commanderOracleText, metaSignals, metaStats);
+            var user = BuildUserPrompt(req, candidates, commanderOracleText, metaSignals, metaStats, detectedThemes);
             var raw  = await _llm.ChatAsync(sys, user, jsonMode: true, ct);
             _logger.LogInformation("LLM response ({Len} chars)", raw.Length);
             (sections, resolvedCommander, reasoning) = ParseDeckOutput(raw, req, priceMap);
@@ -231,6 +246,84 @@ public class DeckGenerationService
                         System.Globalization.CultureInfo.InvariantCulture, out var p)
             ? p : 0.0;
 
+    // ─── Themed Product Enrichment ───────────────────────────────────────────
+
+    /// <summary>
+    /// Detects Universes Beyond / themed-product mentions in the request's
+    /// theme + extra context (e.g. "Avatar: The Last Airbender", "Warhammer
+    /// 40K", "TMNT"). When found, loads cards from those sets and appends
+    /// them to the candidate pool so the LLM can include them.
+    ///
+    /// Errors degrade silently — the deck pipeline keeps working when the
+    /// themed-set lookup fails or no matching cards are in the catalog.
+    /// </summary>
+    private async Task<(List<CardSearchResult> Candidates, List<DetectedTheme> Themes)>
+        EnrichWithThemedCardsAsync(
+            DeckRequest req,
+            List<CardSearchResult> candidates,
+            CancellationToken ct)
+    {
+        var themes = _themed.Detect(req.Theme, req.ExtraContext);
+        if (themes.Count == 0)
+            return (candidates, themes);
+
+        try
+        {
+            var picked = await _themed.LoadCandidateCardsAsync(
+                themes, req.ColorIdentity, req.Format, MaxThemedInjection, ct);
+            if (picked.Count == 0)
+            {
+                _logger.LogInformation(
+                    "Themed sets detected ({Themes}) but no matching cards found in catalog",
+                    string.Join(", ", themes.Select(t => t.DisplayName)));
+                return (candidates, themes);
+            }
+
+            var existingNames = new HashSet<string>(
+                candidates.Select(c => c.Name), StringComparer.OrdinalIgnoreCase);
+            var added = 0;
+
+            foreach (var card in picked)
+            {
+                if (!existingNames.Add(card.Name)) continue;
+
+                candidates.Add(new CardSearchResult(
+                    Name:        card.Name,
+                    TypeLine:    card.TypeLine ?? "",
+                    OracleText:  card.OracleText,
+                    ManaCost:    card.ManaCost ?? "",
+                    Cmc:         card.Cmc,
+                    PriceUsd:    ParsePrice(card.Prices?.Usd),
+                    ImageUri:    card.ImageUris?.Normal,
+                    ScryfallUri: card.ScryfallUri,
+                    Score:       1.0 // float themed cards near the top of their category
+                ));
+                added++;
+            }
+
+            _logger.LogInformation(
+                "Themed sets ({Themes}): injected {Added} cards into candidate pool",
+                string.Join(", ", themes.Select(t => t.DisplayName)), added);
+
+            return (candidates, themes);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Themed set enrichment failed — continuing without");
+            return (candidates, themes);
+        }
+    }
+
+    private static void AppendThemeNotice(StringBuilder sb, IReadOnlyList<DetectedTheme>? themes)
+    {
+        if (themes is null || themes.Count == 0) return;
+        var names = string.Join(", ", themes.Select(t => t.DisplayName));
+        sb.AppendLine(
+            $"- Themed cards from {names} are present in the candidate pool — the user " +
+            "explicitly mentioned this theme. Feature several of these cards prominently " +
+            "wherever they fit the strategy.");
+    }
+
     // ─── Two-Phase Commander Generation ──────────────────────────────────────
 
     private async Task<(List<DeckSection> Sections, string? Commander, string Reasoning)>
@@ -241,6 +334,7 @@ public class DeckGenerationService
             string? commanderOracleText,
             Dictionary<string, MetaSignal> metaSignals,
             MetaSignalStats? metaStats,
+            IReadOnlyList<DetectedTheme> detectedThemes,
             CancellationToken ct)
     {
         // Phase 1: Mana base (lands + ramp)
@@ -251,7 +345,7 @@ public class DeckGenerationService
             Respond ONLY with valid JSON: {"sections":[{"category":"Ramp","cards":[...]},{"category":"Lands","cards":[...]}]}
             """;
 
-        var phase1User = BuildManaBaseUserPrompt(req, candidates, commanderOracleText, metaSignals);
+        var phase1User = BuildManaBaseUserPrompt(req, candidates, commanderOracleText, metaSignals, detectedThemes);
         var phase1Raw  = await _llm.ChatAsync(phase1System, phase1User, jsonMode: true, ct);
         _logger.LogInformation("Phase 1 response ({Len} chars)", phase1Raw.Length);
 
@@ -277,7 +371,7 @@ public class DeckGenerationService
 
         var phase2User = BuildSpellSuiteUserPrompt(
             req, candidates, phase1Sections, remainingSlots, remainingBudget,
-            commanderOracleText, metaSignals, metaStats);
+            commanderOracleText, metaSignals, metaStats, detectedThemes);
         var phase2Raw = await _llm.ChatAsync(phase2System, phase2User, jsonMode: true, ct);
         _logger.LogInformation("Phase 2 response ({Len} chars)", phase2Raw.Length);
 
@@ -320,7 +414,8 @@ public class DeckGenerationService
         DeckRequest req,
         List<CardSearchResult> candidates,
         string? commanderOracleText,
-        Dictionary<string, MetaSignal>? metaSignals)
+        Dictionary<string, MetaSignal>? metaSignals,
+        IReadOnlyList<DetectedTheme>? detectedThemes = null)
     {
         var sb = new StringBuilder();
         var colors         = req.ColorIdentity?.Count > 0 ? string.Join(", ", req.ColorIdentity) : "all colors";
@@ -334,6 +429,7 @@ public class DeckGenerationService
             sb.AppendLine($"Commander ability: \"{commanderOracleText}\"");
             sb.AppendLine("Prefer ramp that synergizes with the commander ability.");
         }
+        AppendThemeNotice(sb, detectedThemes);
         sb.AppendLine();
         sb.AppendLine("Select EXACTLY: 36-38 lands and 8-10 ramp spells.");
         sb.AppendLine();
@@ -350,7 +446,8 @@ public class DeckGenerationService
         double remainingBudget,
         string? commanderOracleText,
         Dictionary<string, MetaSignal>? metaSignals,
-        MetaSignalStats? metaStats)
+        MetaSignalStats? metaStats,
+        IReadOnlyList<DetectedTheme>? detectedThemes = null)
     {
         var sb      = new StringBuilder();
         var colors  = req.ColorIdentity?.Count > 0 ? string.Join(", ", req.ColorIdentity) : "all colors";
@@ -361,6 +458,7 @@ public class DeckGenerationService
         if (commanderOracleText != null)
             sb.AppendLine($"Commander ability: \"{commanderOracleText}\"");
         AppendMetaSummary(sb, metaSignals, metaStats);
+        AppendThemeNotice(sb, detectedThemes);
         sb.AppendLine();
         sb.AppendLine("Mana base committed — do NOT include these:");
         foreach (var section in phase1Sections)
@@ -458,7 +556,8 @@ public class DeckGenerationService
         List<CardSearchResult> candidates,
         string? commanderOracleText = null,
         Dictionary<string, MetaSignal>? metaSignals = null,
-        MetaSignalStats? metaStats = null)
+        MetaSignalStats? metaStats = null,
+        IReadOnlyList<DetectedTheme>? detectedThemes = null)
     {
         var sb            = new StringBuilder();
         var isCommander   = req.Format.Equals("commander", StringComparison.OrdinalIgnoreCase);
@@ -487,6 +586,7 @@ public class DeckGenerationService
         if (!string.IsNullOrWhiteSpace(req.ExtraContext))
             sb.AppendLine($"- Notes: {req.ExtraContext}");
         AppendMetaSummary(sb, metaSignals, metaStats);
+        AppendThemeNotice(sb, detectedThemes);
         sb.AppendLine();
 
         AppendCandidates(sb, candidates, perCardBudget, prioritizeLands: false, excludeLands: false, metaSignals: metaSignals);
