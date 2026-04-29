@@ -201,7 +201,9 @@ public class MongoService
             new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.ScryfallId),
                 new CreateIndexOptions { Unique = true }),
             new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.Name)),
-            new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.ColorIdentity))
+            new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.ColorIdentity)),
+            // Supports themed-set lookups in GetCardsBySetNameSubstringsAsync.
+            new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.SetName))
         ], ct);
 
         _indexesEnsured = true;
