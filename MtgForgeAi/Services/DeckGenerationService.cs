@@ -83,7 +83,8 @@ public class DeckGenerationService
         // threaded into prompt builders so they sort to the top of each category.
         List<DetectedTheme>     detectedThemes;
         HashSet<string>         themedNames;
-        (candidates, detectedThemes, themedNames) =
+        List<string>            themedWarnings;
+        (candidates, detectedThemes, themedNames, themedWarnings) =
             await EnrichWithThemedCardsAsync(req, candidates, ct);
 
         var priceMap = candidates.ToDictionary(
@@ -126,6 +127,11 @@ public class DeckGenerationService
         foreach (var w in validation.Warnings)
             _logger.LogWarning("Validation: {W}", w);
 
+        // Merge themed-set warnings (e.g. "cards not in catalog") with deck validation warnings
+        // so the caller gets a single, complete list of actionable messages.
+        var allWarnings = new List<string>(themedWarnings);
+        allWarnings.AddRange(validation.Warnings);
+
         var deck = new DeckResponse(
             Commander:          resolvedCommander,
             Theme:              req.Theme,
@@ -134,7 +140,7 @@ public class DeckGenerationService
             EstimatedCost:      totalCost,
             Reasoning:          reasoning,
             GeneratedAt:        DateTime.UtcNow,
-            ValidationWarnings: validation.Warnings.Count > 0 ? validation.Warnings : null
+            ValidationWarnings: allWarnings.Count > 0 ? allWarnings : null
         );
 
         // Step 6: Persist
@@ -263,31 +269,59 @@ public class DeckGenerationService
     /// Errors degrade silently — the deck pipeline keeps working when the
     /// themed-set lookup fails or no matching cards are in the catalog.
     /// </summary>
-    private async Task<(List<CardSearchResult> Candidates, List<DetectedTheme> Themes, HashSet<string> ThemedNames)>
+    private async Task<(List<CardSearchResult> Candidates, List<DetectedTheme> Themes, HashSet<string> ThemedNames, List<string> Warnings)>
         EnrichWithThemedCardsAsync(
             DeckRequest req,
             List<CardSearchResult> candidates,
             CancellationToken ct)
     {
-        var emptyThemes = new List<DetectedTheme>();
-        var emptyNames  = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var emptyThemes   = new List<DetectedTheme>();
+        var emptyNames    = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var emptyWarnings = new List<string>();
 
         var detected = _themed.Detect(req.Theme, req.ExtraContext);
         if (detected.Count == 0)
-            return (candidates, emptyThemes, emptyNames);
+            return (candidates, emptyThemes, emptyNames, emptyWarnings);
 
         try
         {
-            var picked = await _themed.LoadCandidateCardsAsync(
+            var (picked, catalogCount) = await _themed.LoadCandidateCardsAsync(
                 detected, req.ColorIdentity, req.Format, MaxThemedInjection, ct);
+
             if (picked.Count == 0)
             {
-                // No catalog matches — suppress the theme notice so the prompt
-                // doesn't claim themed cards are in the pool.
-                _logger.LogInformation(
-                    "Themed sets detected ({Themes}) but no matching cards found in catalog",
-                    string.Join(", ", detected.Select(t => t.DisplayName)));
-                return (candidates, emptyThemes, emptyNames);
+                var themeNames = string.Join(", ", detected.Select(t => t.DisplayName));
+
+                string warning;
+                if (catalogCount == 0)
+                {
+                    // No catalog entries at all — likely the cards haven't been ingested yet.
+                    _logger.LogWarning(
+                        "Themed sets detected ({Themes}) but no matching cards found in catalog — " +
+                        "run the full ingestion pipeline to enable themed set support",
+                        themeNames);
+                    warning = $"Themed set cards for '{themeNames}' were not found in your card catalog. " +
+                              "Run the ingestion pipeline (POST /api/admin/ingest) to load all cards, " +
+                              "then regenerate the deck.";
+                }
+                else
+                {
+                    // Cards exist but were all filtered out by format legality or color identity.
+                    var format = req.Format.ToLowerInvariant();
+                    var colors = req.ColorIdentity is { Count: > 0 }
+                        ? string.Join("", req.ColorIdentity.Select(c => c.ToUpperInvariant()))
+                        : "any";
+                    _logger.LogWarning(
+                        "Themed sets detected ({Themes}): {Count} catalog cards found but all filtered out " +
+                        "(format={Format}, colorIdentity={Colors})",
+                        themeNames, catalogCount, format, colors);
+                    warning = $"Themed set cards for '{themeNames}' are present in your catalog but none " +
+                              $"are legal in {format} format with the requested color identity. " +
+                              $"Try commander format or broaden the color identity to include these cards.";
+                }
+
+                // Suppress the theme notice so the prompt doesn't claim themed cards are in the pool.
+                return (candidates, emptyThemes, emptyNames, new List<string> { warning });
             }
 
             var existingNames = new HashSet<string>(
@@ -314,7 +348,7 @@ public class DeckGenerationService
             }
 
             if (injected.Count == 0)
-                return (candidates, emptyThemes, emptyNames);
+                return (candidates, emptyThemes, emptyNames, emptyWarnings);
 
             // Prepend themed cards so they survive the candidates.Take(150)
             // truncation in AppendCandidates.
@@ -326,12 +360,12 @@ public class DeckGenerationService
                 "Themed sets ({Themes}): injected {Added} cards into candidate pool",
                 string.Join(", ", detected.Select(t => t.DisplayName)), injected.Count);
 
-            return (enriched, detected, themedNames);
+            return (enriched, detected, themedNames, emptyWarnings);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Themed set enrichment failed — continuing without");
-            return (candidates, emptyThemes, emptyNames);
+            return (candidates, emptyThemes, emptyNames, emptyWarnings);
         }
     }
 

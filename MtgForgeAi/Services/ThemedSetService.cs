@@ -96,8 +96,12 @@ public class ThemedSetService
     /// Fetches up to <paramref name="limit"/> distinct cards from MongoDB
     /// whose <c>set_name</c> matches any of the substrings on the detected
     /// themes, filtered by color identity and format legality.
+    ///
+    /// Returns the filtered card list together with the raw catalog count so
+    /// callers can distinguish "not in catalog" (catalogCount == 0) from
+    /// "found but filtered" (catalogCount &gt; 0, cards empty).
     /// </summary>
-    public async Task<List<MtgCard>> LoadCandidateCardsAsync(
+    public async Task<(List<MtgCard> Cards, int CatalogCount)> LoadCandidateCardsAsync(
         IReadOnlyList<DetectedTheme> themes,
         IReadOnlyList<string>? colorIdentity,
         string format,
@@ -105,7 +109,7 @@ public class ThemedSetService
         CancellationToken ct = default)
     {
         if (themes.Count == 0)
-            return new List<MtgCard>();
+            return (new List<MtgCard>(), 0);
 
         var substrings = themes
             .SelectMany(t => t.SetNameSubstrings)
@@ -123,11 +127,11 @@ public class ThemedSetService
         {
             _logger.LogWarning(ex, "Themed set Mongo lookup failed for {Themes}",
                 string.Join(", ", themes.Select(t => t.DisplayName)));
-            return new List<MtgCard>();
+            return (new List<MtgCard>(), 0);
         }
 
         if (raw.Count == 0)
-            return raw;
+            return (raw, 0);
 
         var colorSet = colorIdentity is { Count: > 0 }
             ? new HashSet<string>(colorIdentity, StringComparer.OrdinalIgnoreCase)
@@ -153,7 +157,7 @@ public class ThemedSetService
             picked.Add(card);
         }
 
-        return picked;
+        return (picked, raw.Count);
     }
 
     private static string LegalityKey(string format) => format.ToLowerInvariant() switch
