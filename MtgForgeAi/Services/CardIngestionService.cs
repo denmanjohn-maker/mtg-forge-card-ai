@@ -24,6 +24,7 @@ public class CardIngestionService
     private readonly QdrantClient _qdrant;
     private readonly OllamaEmbedService _embedder;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IngestionStatusService _status;
     private readonly ILogger<CardIngestionService> _logger;
 
     private const string QdrantCollection = "mtg_cards";
@@ -37,12 +38,14 @@ public class CardIngestionService
         QdrantClient qdrant,
         OllamaEmbedService embedder,
         IHttpClientFactory httpClientFactory,
+        IngestionStatusService status,
         ILogger<CardIngestionService> logger)
     {
         _mongo = mongo;
         _qdrant = qdrant;
         _embedder = embedder;
         _httpClientFactory = httpClientFactory;
+        _status = status;
         _logger = logger;
     }
 
@@ -91,6 +94,7 @@ public class CardIngestionService
             }).ToList();
 
             _logger.LogInformation("Embedding {Count} format-legal cards into Qdrant...", legalCards.Count);
+            _status.SetTotalToEmbed(legalCards.Count);
             result.QdrantVectorsUpserted = await EmbedAndUpsertToQdrantAsync(legalCards, ct);
             _logger.LogInformation("Qdrant: {Count} vectors upserted", result.QdrantVectorsUpserted);
         }
@@ -239,6 +243,7 @@ public class CardIngestionService
             {
                 await _qdrant.UpsertAsync(QdrantCollection, points, cancellationToken: CancellationToken.None);
                 upserted += points.Count;
+                _status.IncrementEmbedded(points.Count);
             }
 
             if (i % (BatchSize * 10) == 0 && i > 0)
@@ -395,13 +400,4 @@ public class CardIngestionService
         [System.Text.Json.Serialization.JsonPropertyName("art_crop")]
         public string? ArtCrop { get; set; }
     }
-}
-
-/// <summary>Result summary from the card ingestion pipeline.</summary>
-public record IngestionResult
-{
-    public int TotalCardsDownloaded { get; set; }
-    public int MongoCardsUpserted { get; set; }
-    public int QdrantVectorsUpserted { get; set; }
-    public double ElapsedSeconds { get; set; }
 }

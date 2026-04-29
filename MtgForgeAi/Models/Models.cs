@@ -233,6 +233,30 @@ public record MetaSignalsResponse(
     List<MetaSignal> Signals
 );
 
+// ─── Ingestion Status ─────────────────────────────────────────────────────────
+
+/// <summary>Result summary from the card ingestion pipeline.</summary>
+public record IngestionResult
+{
+    public int TotalCardsDownloaded { get; set; }
+    public int MongoCardsUpserted { get; set; }
+    public int QdrantVectorsUpserted { get; set; }
+    public double ElapsedSeconds { get; set; }
+}
+
+public record IngestionProgress(int CardsEmbedded, int TotalToEmbed);
+
+public record IngestionStatusResponse(
+    bool IsRunning,
+    DateTime? LastStartedAt,
+    DateTime? LastCompletedAt,
+    IngestionResult? LastResult,
+    IngestionProgress CurrentProgress,
+    long MongoCardCount,
+    long QdrantVectorCount,
+    string EmbedModel
+);
+
 // ─── Saved Deck ───────────────────────────────────────────────────────────────
 
 public class SavedDeck
