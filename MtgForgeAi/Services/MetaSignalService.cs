@@ -14,7 +14,7 @@ namespace MtgForgeAi.Services;
 /// </summary>
 public class MetaSignalService
 {
-    private readonly MongoService _mongo;
+    private readonly IMetaSignalRepository _mongo;
     private readonly ILogger<MetaSignalService> _logger;
 
     // Per-format cache. ConcurrentDictionary so the TTL fast-path read
@@ -27,7 +27,7 @@ public class MetaSignalService
 
     private sealed record CacheEntry(DateTime ExpiresAt, List<MetaSignal> Signals, MetaSignalStats? Stats);
 
-    public MetaSignalService(MongoService mongo, ILogger<MetaSignalService> logger)
+    public MetaSignalService(IMetaSignalRepository mongo, ILogger<MetaSignalService> logger)
     {
         _mongo  = mongo;
         _logger = logger;

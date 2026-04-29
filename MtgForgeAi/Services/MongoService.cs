@@ -3,7 +3,7 @@ using MtgForgeAi.Models;
 
 namespace MtgForgeAi.Services;
 
-public class MongoService
+public class MongoService : IMetaSignalRepository
 {
     private readonly IMongoDatabase _db;
     private readonly ILogger<MongoService> _logger;
