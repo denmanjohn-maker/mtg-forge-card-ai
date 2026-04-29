@@ -54,6 +54,7 @@ builder.Services.AddScoped<OllamaEmbedService>();
 builder.Services.AddScoped<CardSearchService>();
 builder.Services.AddScoped<DeckGenerationService>();
 builder.Services.AddScoped<CardIngestionService>();
+builder.Services.AddScoped<ThemedSetService>();
 
 // Tournament meta signals — reads from MongoDB collection populated by
 // scripts/compute_meta_signals.py. Singleton so its in-memory cache is shared.

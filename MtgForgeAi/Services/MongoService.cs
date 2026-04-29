@@ -53,6 +53,34 @@ public class MongoService : IMetaSignalRepository
         return await col.Find(filter).Limit(500).ToListAsync(ct);
     }
 
+    /// <summary>
+    /// Returns cards whose <c>set_name</c> contains any of the given substrings
+    /// (case-insensitive). Used by themed-set enrichment to pull cards from
+    /// Universes Beyond products without needing exact set names. Empty input
+    /// returns an empty list.
+    /// </summary>
+    public async Task<List<MtgCard>> GetCardsBySetNameSubstringsAsync(
+        IEnumerable<string> substrings,
+        int limit,
+        CancellationToken ct = default)
+    {
+        var terms = substrings
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s => s.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (terms.Count == 0) return new List<MtgCard>();
+
+        var col       = _db.GetCollection<MtgCard>("cards");
+        var orFilters = terms.Select(t =>
+            Builders<MtgCard>.Filter.Regex(
+                c => c.SetName,
+                new MongoDB.Bson.BsonRegularExpression(
+                    System.Text.RegularExpressions.Regex.Escape(t), "i")));
+        var filter = Builders<MtgCard>.Filter.Or(orFilters);
+        return await col.Find(filter).Limit(limit).ToListAsync(ct);
+    }
+
     // ─── Decks ────────────────────────────────────────────────────────────────
 
     public async Task SaveDeckAsync(SavedDeck deck, CancellationToken ct = default)
@@ -173,7 +201,9 @@ public class MongoService : IMetaSignalRepository
             new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.ScryfallId),
                 new CreateIndexOptions { Unique = true }),
             new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.Name)),
-            new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.ColorIdentity))
+            new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.ColorIdentity)),
+            // Supports themed-set lookups in GetCardsBySetNameSubstringsAsync.
+            new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.SetName))
         ], ct);
 
         _indexesEnsured = true;
