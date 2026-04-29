@@ -209,6 +209,12 @@ public class MongoService : IMetaSignalRepository
         _indexesEnsured = true;
     }
 
+    public async Task<long> GetCardCountAsync(CancellationToken ct = default)
+    {
+        var col = _db.GetCollection<MtgCard>("cards");
+        return await col.CountDocumentsAsync(FilterDefinition<MtgCard>.Empty, cancellationToken: ct);
+    }
+
     public async Task<int> BulkUpsertCardsAsync(List<MtgCard> cards, CancellationToken ct = default)
     {
         var collection = _db.GetCollection<MtgCard>("cards");

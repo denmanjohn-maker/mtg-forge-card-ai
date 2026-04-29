@@ -61,6 +61,10 @@ builder.Services.AddScoped<ThemedSetService>();
 // scripts/compute_meta_signals.py. Singleton so its in-memory cache is shared.
 builder.Services.AddSingleton<MetaSignalService>();
 
+// Ingestion status — singleton so all scoped CardIngestionService instances
+// and the AdminController share the same live state.
+builder.Services.AddSingleton<IngestionStatusService>();
+
 // CORS — open for local dev
 builder.Services.AddCors(options =>
 {
