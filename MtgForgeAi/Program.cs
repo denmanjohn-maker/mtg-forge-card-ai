@@ -15,6 +15,7 @@ builder.Services.AddSwaggerGen(c =>
 
 // MongoDB
 builder.Services.AddSingleton<MongoService>();
+builder.Services.AddSingleton<IMetaSignalRepository>(sp => sp.GetRequiredService<MongoService>());
 
 // Qdrant
 builder.Services.AddSingleton(sp =>
