@@ -781,10 +781,24 @@ public class DeckGenerationService
     private LlmDeckOutput? TryDeserializeLlmOutput(string raw)
     {
         var json  = raw.Replace("```json", "").Replace("```", "").Trim();
+
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            _logger.LogWarning("LLM returned an empty response — falling back to empty deck.");
+            return null;
+        }
+
         var start = json.IndexOf('{');
         var end   = json.LastIndexOf('}');
-        if (start >= 0 && end > start)
-            json = json[start..(end + 1)];
+
+        if (start < 0 || end <= start)
+        {
+            _logger.LogWarning("LLM response contains no JSON object — falling back to empty deck. Payload (truncated): {Payload}",
+                raw.Length > 500 ? raw[..500] + "…" : raw);
+            return null;
+        }
+
+        json = json[start..(end + 1)];
 
         try
         {
