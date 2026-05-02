@@ -67,6 +67,18 @@ public class CardIngestionService
         result.TotalCardsDownloaded = cards.Count;
         _logger.LogInformation("Downloaded {Count} cards from Scryfall", cards.Count);
 
+        // Guard: drop any card whose ScryfallId is blank. Without this, all
+        // null-id cards map to ScryfallId="" and the upsert filter matches the
+        // same document for every card, collapsing the whole catalog to 1 row.
+        var blankIdCount = cards.Count(c => string.IsNullOrEmpty(c.ScryfallId));
+        if (blankIdCount > 0)
+        {
+            _logger.LogWarning(
+                "Dropping {Count} cards with missing ScryfallId — Scryfall API format may have changed",
+                blankIdCount);
+            cards = cards.Where(c => !string.IsNullOrEmpty(c.ScryfallId)).ToList();
+        }
+
         if (limit.HasValue && limit.Value > 0)
         {
             cards = cards.Take(limit.Value).ToList();
