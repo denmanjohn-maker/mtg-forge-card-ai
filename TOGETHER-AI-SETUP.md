@@ -33,17 +33,17 @@ This guide walks you through configuring MTG Forge AI to use Together.ai as its 
 The default model is already configured in `appsettings.json`:
 
 ```
-meta-llama/Llama-3.3-70B-Instruct-Turbo
+meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8
 ```
 
-This model gives excellent JSON-following behavior for deck generation at a low cost. If you want to try a different model, browse the [Together.ai model list](https://api.together.ai/models) and filter by **Chat** capability. Some good alternatives:
+This model gives GPT-4o class JSON-following behavior at 3× lower cost than the previous default. If you want to try a different model, browse the [Together.ai model list](https://api.together.ai/models) and filter by **Chat** capability. Some good alternatives:
 
-| Model ID | Notes |
-|---|---|
-| `meta-llama/Llama-3.3-70B-Instruct-Turbo` | ✅ Default — best quality/cost for this use case |
-| `meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo` | Faster and cheaper, lower quality |
-| `mistralai/Mixtral-8x7B-Instruct-v0.1` | Good alternative if Llama is unavailable |
-| `Qwen/Qwen2.5-72B-Instruct-Turbo` | Strong instruction following |
+| Model ID | Input $/1M | Notes |
+|---|---|---|
+| `meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8` | $0.27 | ✅ Default — best quality/cost; 1M context; JSON mode |
+| `meta-llama/Llama-3.3-70B-Instruct-Turbo` | $0.88 | Previous default — still solid, now superseded by Maverick |
+| `Qwen/Qwen3.5-9B` | $0.10 | Budget option for testing |
+| `deepseek-ai/DeepSeek-V4-Pro` | $2.10 | Only needed for very long context workloads |
 
 Copy the full model ID from the Together.ai UI — you will need it in Step 3.
 
@@ -249,10 +249,11 @@ The `LLM__BaseUrl`, `LLM__Model`, and `LLM__ApiKey` values are ignored when `Pro
 
 ## Cost Reference
 
-| Model | Input (per 1M tokens) | Typical deck request | Cost per deck |
+| Model | Input (per 1M tokens) | Output (per 1M tokens) | Cost per deck |
 |---|---|---|---|
-| `Llama-3.3-70B-Instruct-Turbo` | ~$0.88 | ~2,500 tokens in + ~1,500 out | ~$0.003 |
-| `Meta-Llama-3.1-8B-Instruct-Turbo` | ~$0.18 | ~2,500 tokens in + ~1,500 out | ~$0.001 |
+| `Llama-4-Maverick-17B-128E-Instruct-FP8` | ~$0.27 | ~$0.85 | ~$0.0035 ✅ Default |
+| `Llama-3.3-70B-Instruct-Turbo` | ~$0.88 | ~$0.88 | ~$0.006 |
+| `Qwen3.5-9B` | ~$0.10 | ~$0.15 | ~$0.001 |
 
 Prices are approximate and subject to Together.ai's current rates. Check [https://api.together.ai/models](https://api.together.ai/models) for up-to-date pricing.
 
