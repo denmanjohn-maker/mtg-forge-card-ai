@@ -196,7 +196,12 @@ LLM__Provider=openai
 LLM__BaseUrl=https://api.together.xyz
 LLM__Model=meta-llama/Llama-3.3-70B-Instruct-Turbo
 LLM__ApiKey=your-key
+Loki__Url=https://loki.up.railway.app
+Loki__Username=your-loki-username
+Loki__Password=your-loki-password
 ```
+
+> **Loki logging**: Set `Loki__Url` to the full HTTP URL of your Railway Loki instance. If your Loki instance does not require authentication, leave `Loki__Username` and `Loki__Password` blank (or omit them). When `Loki__Url` is empty the Loki sink is disabled and only console logging is active — this is the default for local dev.
 
 ---
 

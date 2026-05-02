@@ -1,7 +1,39 @@
 using MtgForgeAi.Services;
 using Qdrant.Client;
+using Serilog;
+using Serilog.Sinks.GrafanaLoki;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ─── Logging (Serilog) ────────────────────────────────────────────────────────
+
+builder.Host.UseSerilog((ctx, cfg) =>
+{
+    cfg.ReadFrom.Configuration(ctx.Configuration)
+       .Enrich.FromLogContext()
+       .WriteTo.Console();
+
+    var lokiUrl = ctx.Configuration["Loki:Url"];
+    if (!string.IsNullOrWhiteSpace(lokiUrl))
+    {
+        var lokiUser     = ctx.Configuration["Loki:Username"] ?? string.Empty;
+        var lokiPassword = ctx.Configuration["Loki:Password"] ?? string.Empty;
+        var env          = ctx.HostingEnvironment.EnvironmentName;
+
+        var credentials = string.IsNullOrWhiteSpace(lokiUser)
+            ? null
+            : new GrafanaLokiCredentials { User = lokiUser, Password = lokiPassword };
+
+        cfg.WriteTo.GrafanaLoki(
+            lokiUrl,
+            credentials: credentials,
+            labels: new Dictionary<string, string>
+            {
+                ["app"] = "mtg-forge-ai",
+                ["env"] = env
+            });
+    }
+});
 
 // ─── Services ─────────────────────────────────────────────────────────────────
 
@@ -76,6 +108,7 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+app.UseSerilogRequestLogging();
 app.UseSwagger();
 app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "MTG Forge AI v1"));
 
