@@ -236,13 +236,23 @@ public class MongoService : IMetaSignalRepository
 
             try
             {
-                var result = await collection.BulkWriteAsync(ops, cancellationToken: ct);
-                upserted += (int)(result.Upserts.Count + result.ModifiedCount);
+                // ordered=false: a single failing op (e.g. transient duplicate-key
+                // race) does not abort the rest of the batch — matches the reference
+                // Python ingestion script's behaviour and prevents whole-batch loss.
+                var result = await collection.BulkWriteAsync(
+                    ops,
+                    new BulkWriteOptions { IsOrdered = false },
+                    cancellationToken: ct);
+                // MatchedCount covers replacements (including ones where content was
+                // identical, which leave ModifiedCount at 0) plus Upserts for new docs.
+                upserted += (int)(result.Upserts.Count + result.MatchedCount);
             }
             catch (MongoBulkWriteException<MtgCard> ex)
             {
-                _logger.LogWarning("MongoDB batch write warning: {Message}", ex.Message);
-                upserted += batch.Count;
+                _logger.LogWarning(
+                    "MongoDB batch write partial failure: {WriteErrors} of {Total} ops failed: {Message}",
+                    ex.WriteErrors.Count, ops.Count, ex.Message);
+                upserted += (int)(ex.Result.Upserts.Count + ex.Result.MatchedCount);
             }
         }
 
