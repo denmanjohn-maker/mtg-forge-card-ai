@@ -29,6 +29,10 @@ public class DeckGenerationService
     // injection because the user has explicitly asked for the theme.
     private const int MaxThemedInjection = 40;
 
+    // Maximum number of characters included in log messages that truncate
+    // raw LLM payloads (to avoid flooding logs with huge model responses).
+    private const int MaxLogPayloadLength = 500;
+
     public DeckGenerationService(
         CardSearchService search,
         ILlmService llm,
@@ -781,10 +785,24 @@ public class DeckGenerationService
     private LlmDeckOutput? TryDeserializeLlmOutput(string raw)
     {
         var json  = raw.Replace("```json", "").Replace("```", "").Trim();
+
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            _logger.LogWarning("LLM returned an empty response — falling back to empty deck.");
+            return null;
+        }
+
         var start = json.IndexOf('{');
         var end   = json.LastIndexOf('}');
-        if (start >= 0 && end > start)
-            json = json[start..(end + 1)];
+
+        if (start < 0 || end <= start)
+        {
+            _logger.LogWarning("LLM response contains no JSON object — falling back to empty deck. Payload (truncated): {Payload}",
+                raw.Length > MaxLogPayloadLength ? raw[..MaxLogPayloadLength] + "…" : raw);
+            return null;
+        }
+
+        json = json[start..(end + 1)];
 
         try
         {
@@ -794,7 +812,7 @@ public class DeckGenerationService
         catch (JsonException ex)
         {
             _logger.LogWarning(ex, "Failed to deserialize LLM output — falling back to empty deck. Payload (truncated): {Payload}",
-                raw.Length > 500 ? raw[..500] + "…" : raw);
+                raw.Length > MaxLogPayloadLength ? raw[..MaxLogPayloadLength] + "…" : raw);
             return null;
         }
     }
