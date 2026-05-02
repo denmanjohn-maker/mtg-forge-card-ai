@@ -161,6 +161,7 @@ mtg-forge-ai (Railway)
   ├─ POST /api/decks/generate      → DeckGenerationService → Qdrant + Together.ai
   ├─ POST /api/cards/search        → CardSearchService → Qdrant semantic search
   ├─ POST /api/admin/ingest        → CardIngestionService → Scryfall → MongoDB + Qdrant
+  ├─ GET  /api/admin/ingest-status → IngestionStatusService (also at GET /api/admin/ingest)
   ├─ GET  /api/decks               → MongoService (list saved decks)
   ├─ GET  /api/health              → Health check (LLM, MongoDB, Qdrant)
   └─ MongoDB (card catalog + saved decks)

@@ -193,7 +193,9 @@ public class AdminController : ControllerBase
     /// Returns the current state of the card ingestion pipeline:
     /// whether a job is running, last-run timestamps and stats,
     /// live embedding progress, MongoDB card count, and Qdrant vector count.
+    /// Also accessible via GET /api/admin/ingest for backwards compatibility.
     /// </summary>
+    [HttpGet("ingest")]
     [HttpGet("ingest-status")]
     public async Task<ActionResult<IngestionStatusResponse>> IngestStatus(CancellationToken ct)
     {

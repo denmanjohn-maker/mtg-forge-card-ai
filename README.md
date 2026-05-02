@@ -210,6 +210,7 @@ LLM__ApiKey=your-key
 | `DELETE` | `/api/decks/{id}` | Delete a saved deck |
 | `POST` | `/api/cards/search` | Semantic card search (query, colors, maxPrice, limit, format) |
 | `POST` | `/api/admin/ingest` | Ingest cards from Scryfall (mongoOnly, qdrantOnly, limit) |
+| `GET` | `/api/admin/ingest-status` | Ingestion status (running, progress, MongoDB/Qdrant counts) — also reachable at `/api/admin/ingest` |
 | `GET` | `/api/admin/meta` | Inspect tournament meta signals (`?format=modern&limit=50`) |
 | `GET` | `/api/health` | Health check (LLM, MongoDB, Qdrant) |
 
