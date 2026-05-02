@@ -31,7 +31,8 @@ builder.Host.UseSerilog((ctx, cfg) =>
             {
                 ["app"] = "mtg-forge-ai",
                 ["env"] = env
-            });
+            },
+            propertiesAsLabels: new[] { "level" });
     }
 });
 
