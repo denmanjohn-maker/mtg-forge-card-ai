@@ -1,6 +1,8 @@
+using MtgForgeAi.Logging;
 using MtgForgeAi.Services;
 using Qdrant.Client;
 using Serilog;
+using Serilog.Core;
 using Serilog.Sinks.GrafanaLoki;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -24,15 +26,22 @@ builder.Host.UseSerilog((ctx, cfg) =>
             ? null
             : new GrafanaLokiCredentials { User = lokiUser, Password = lokiPassword };
 
-        cfg.WriteTo.GrafanaLoki(
-            lokiUrl,
-            credentials: credentials,
-            labels: new Dictionary<string, string>
-            {
-                ["app"] = "mtg-forge-ai",
-                ["env"] = env
-            },
-            propertiesAsLabels: new[] { "level" });
+        // Build the Loki sink via a sub-logger, then wrap it with
+        // LokiLabelSink to strip ASP.NET Core request-scope properties
+        // before they become Loki stream labels (limit: 15).
+        var lokiInner = (ILogEventSink)new LoggerConfiguration()
+            .MinimumLevel.Verbose()
+            .WriteTo.GrafanaLoki(
+                lokiUrl,
+                credentials: credentials,
+                labels: new Dictionary<string, string>
+                {
+                    ["app"] = "mtg-forge-ai",
+                    ["env"] = env
+                })
+            .CreateLogger();
+
+        cfg.WriteTo.Sink(new LokiLabelSink(lokiInner));
     }
 });
 
