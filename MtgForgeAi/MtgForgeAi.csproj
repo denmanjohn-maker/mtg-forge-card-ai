@@ -10,8 +10,8 @@
   <ItemGroup>
     <PackageReference Include="MongoDB.Driver" Version="2.27.0" />
     <PackageReference Include="Qdrant.Client" Version="1.9.0" />
-    <PackageReference Include="Serilog.AspNetCore" Version="*" />
-    <PackageReference Include="Serilog.Sinks.GrafanaLoki" Version="*" />
+    <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+    <PackageReference Include="Serilog.Sinks.GrafanaLoki" Version="1.1.2" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
   </ItemGroup>
 
