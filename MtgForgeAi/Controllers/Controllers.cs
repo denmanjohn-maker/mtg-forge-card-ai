@@ -211,7 +211,9 @@ public class AdminController : ControllerBase
         try
         {
             var info  = await _qdrant.GetCollectionInfoAsync("mtg_cards", ct);
-            qdrantCount = (long)info.VectorsCount;
+            // Qdrant 1.9+ no longer populates vectors_count; points_count is the
+            // authoritative number of stored vectors for our single-vector schema.
+            qdrantCount = (long)info.PointsCount;
         }
         catch (Exception ex) { _logger.LogWarning(ex, "Could not fetch Qdrant vector count"); }
 
