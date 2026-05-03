@@ -1,3 +1,4 @@
+using MongoDB.Bson;
 using MongoDB.Driver;
 using MtgForgeAi.Models;
 
@@ -228,11 +229,14 @@ public class MongoService : IMetaSignalRepository
         {
             var batch = cards.Skip(i).Take(batchSize).ToList();
             var ops = batch.Select(card =>
-                new ReplaceOneModel<MtgCard>(
+            {
+                if (card.MongoId is null)
+                    card.MongoId = ObjectId.GenerateNewId().ToString();
+                return new ReplaceOneModel<MtgCard>(
                     Builders<MtgCard>.Filter.Eq(c => c.ScryfallId, card.ScryfallId),
                     card)
-                { IsUpsert = true }
-            ).ToList();
+                { IsUpsert = true };
+            }).ToList();
 
             try
             {
