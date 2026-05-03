@@ -225,6 +225,11 @@ public class MongoService : IMetaSignalRepository
         for (int i = 0; i < cards.Count; i += batchSize)
         {
             var batch = cards.Skip(i).Take(batchSize).ToList();
+            var nullIdCount = batch.Count(c => c.ScryfallId == null);
+            if (nullIdCount > 0 || i == 0)
+                _logger.LogInformation(
+                    "Batch {Batch}: {Total} cards, {NullIds} null ScryfallIds, first id = '{FirstId}'",
+                    i / batchSize, batch.Count, nullIdCount, batch[0].ScryfallId);
             var ops = batch.Select(card =>
                 new ReplaceOneModel<MtgCard>(
                     Builders<MtgCard>.Filter.Eq(c => c.ScryfallId, card.ScryfallId),

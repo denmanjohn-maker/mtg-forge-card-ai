@@ -77,7 +77,6 @@ public record IngestionRequest(
 public class MtgCard
 {
     [BsonId]
-    [BsonElement("_id")]
     public string ScryfallId { get; set; } = "";
 
     [BsonElement("name")]
