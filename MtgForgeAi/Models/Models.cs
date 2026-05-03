@@ -77,10 +77,7 @@ public record IngestionRequest(
 public class MtgCard
 {
     [BsonId]
-    [BsonRepresentation(BsonType.ObjectId)]
-    public string? MongoId { get; set; }
-
-    [BsonElement("id")]
+    [BsonElement("_id")]
     public string ScryfallId { get; set; } = "";
 
     [BsonElement("name")]

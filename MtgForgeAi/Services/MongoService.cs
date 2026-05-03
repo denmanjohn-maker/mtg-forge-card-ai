@@ -1,4 +1,3 @@
-using MongoDB.Bson;
 using MongoDB.Driver;
 using MtgForgeAi.Models;
 
@@ -199,8 +198,6 @@ public class MongoService : IMetaSignalRepository
         var collection = _db.GetCollection<MtgCard>("cards");
         var indexKeys = Builders<MtgCard>.IndexKeys;
         await collection.Indexes.CreateManyAsync([
-            new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.ScryfallId),
-                new CreateIndexOptions { Unique = true }),
             new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.Name)),
             new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.ColorIdentity)),
             // Supports themed-set lookups in GetCardsBySetNameSubstringsAsync.
@@ -229,14 +226,11 @@ public class MongoService : IMetaSignalRepository
         {
             var batch = cards.Skip(i).Take(batchSize).ToList();
             var ops = batch.Select(card =>
-            {
-                if (card.MongoId is null)
-                    card.MongoId = ObjectId.GenerateNewId().ToString();
-                return new ReplaceOneModel<MtgCard>(
+                new ReplaceOneModel<MtgCard>(
                     Builders<MtgCard>.Filter.Eq(c => c.ScryfallId, card.ScryfallId),
                     card)
-                { IsUpsert = true };
-            }).ToList();
+                { IsUpsert = true }
+            ).ToList();
 
             try
             {
