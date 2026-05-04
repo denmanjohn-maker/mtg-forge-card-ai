@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using MtgForgeAi.Telemetry;
 
 namespace MtgForgeAi.Services;
 
@@ -43,23 +45,43 @@ public class OllamaEmbedService
 
     public async Task<float[]> EmbedAsync(string text, CancellationToken ct = default)
     {
-        var payload = new { model = _model, input = text };
-        var json = JsonSerializer.Serialize(payload);
-        using var content = new StringContent(json, Encoding.UTF8, "application/json");
+        using var activity = AppTelemetry.Activities.StartActivity("ollama.embed");
+        activity?.SetTag("model", _model);
 
-        var response = await _http.PostAsync("/api/embed", content, ct);
-
-        if (!response.IsSuccessStatusCode)
+        var sw = Stopwatch.StartNew();
+        try
         {
-            var err = await response.Content.ReadAsStringAsync(ct);
-            throw new InvalidOperationException($"Ollama embed error: {err}");
+            var payload = new { model = _model, input = text };
+            var json = JsonSerializer.Serialize(payload);
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await _http.PostAsync("/api/embed", content, ct);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var err = await response.Content.ReadAsStringAsync(ct);
+                throw new InvalidOperationException($"Ollama embed error: {err}");
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<OllamaEmbedResponse>(ct)
+                ?? throw new InvalidOperationException("Null embed response");
+
+            var vector = result.Embeddings?[0]
+                ?? throw new InvalidOperationException("No embeddings in response");
+
+            activity?.SetTag("vector.dimensions", vector.Length);
+            return vector;
         }
-
-        var result = await response.Content.ReadFromJsonAsync<OllamaEmbedResponse>(ct)
-            ?? throw new InvalidOperationException("Null embed response");
-
-        return result.Embeddings?[0]
-            ?? throw new InvalidOperationException("No embeddings in response");
+        catch
+        {
+            activity?.SetStatus(ActivityStatusCode.Error);
+            throw;
+        }
+        finally
+        {
+            AppTelemetry.EmbeddingLatency.Record(sw.Elapsed.TotalMilliseconds,
+                new TagList { { "model", _model } });
+        }
     }
 
     private class OllamaEmbedResponse

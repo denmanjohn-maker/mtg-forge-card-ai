@@ -1,8 +1,10 @@
+using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using MtgForgeAi.Models;
+using MtgForgeAi.Telemetry;
 using Qdrant.Client;
 using Qdrant.Client.Grpc;
 
@@ -58,13 +60,20 @@ public class CardIngestionService
         int? limit = null,
         CancellationToken ct = default)
     {
+        using var activity = AppTelemetry.Activities.StartActivity("ingestion.run");
+        activity?.SetTag("mongoOnly", mongoOnly);
+        activity?.SetTag("qdrantOnly", qdrantOnly);
+        activity?.SetTag("limit", limit?.ToString() ?? "all");
+
         var result = new IngestionResult();
-        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var sw = Stopwatch.StartNew();
 
         // Step 1: Download cards from Scryfall
         _logger.LogInformation("Fetching Scryfall oracle cards...");
         var cards = await DownloadScryfallCardsAsync(ct);
         result.TotalCardsDownloaded = cards.Count;
+        AppTelemetry.CardsDownloaded.Add(cards.Count);
+        activity?.SetTag("cards.downloaded", cards.Count);
         _logger.LogInformation("Downloaded {Count} cards from Scryfall", cards.Count);
 
         // Guard: drop any card whose ScryfallId is blank. Without this, all
@@ -88,8 +97,11 @@ public class CardIngestionService
         // Step 2: MongoDB ingestion
         if (!qdrantOnly)
         {
+            using var mongoActivity = AppTelemetry.Activities.StartActivity("ingestion.mongo_upsert");
             _logger.LogInformation("Upserting {Count} cards into MongoDB...", cards.Count);
             result.MongoCardsUpserted = await _mongo.BulkUpsertCardsAsync(cards, ct);
+            AppTelemetry.CardsUpsertedMongo.Add(result.MongoCardsUpserted);
+            mongoActivity?.SetTag("cards.upserted", result.MongoCardsUpserted);
             _logger.LogInformation("MongoDB: {Count} cards upserted", result.MongoCardsUpserted);
         }
 
@@ -113,6 +125,8 @@ public class CardIngestionService
 
         sw.Stop();
         result.ElapsedSeconds = sw.Elapsed.TotalSeconds;
+        AppTelemetry.IngestionDuration.Record(result.ElapsedSeconds);
+        activity?.SetTag("elapsed_seconds", result.ElapsedSeconds);
         return result;
     }
 
@@ -209,6 +223,9 @@ public class CardIngestionService
 
     private async Task<int> EmbedAndUpsertToQdrantAsync(List<MtgCard> cards, CancellationToken ct)
     {
+        using var activity = AppTelemetry.Activities.StartActivity("ingestion.qdrant_embed_upsert");
+        activity?.SetTag("cards.total", cards.Count);
+
         // Ensure collection exists — get vector dimension from a test embedding
         await EnsureQdrantCollectionAsync(ct);
 
@@ -255,6 +272,7 @@ public class CardIngestionService
             {
                 await _qdrant.UpsertAsync(QdrantCollection, points, cancellationToken: CancellationToken.None);
                 upserted += points.Count;
+                AppTelemetry.VectorsUpsertedQdrant.Add(points.Count);
                 _status.IncrementEmbedded(points.Count);
             }
 

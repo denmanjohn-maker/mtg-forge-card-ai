@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using MtgForgeAi.Models;
+using MtgForgeAi.Telemetry;
 
 namespace MtgForgeAi.Services;
 
@@ -53,115 +55,141 @@ public class DeckGenerationService
 
     public async Task<DeckResponse> GenerateDeckAsync(DeckRequest req, CancellationToken ct = default)
     {
-        _logger.LogInformation("Generating {Format} | Theme: {Theme} | Budget: ${Budget}",
-            req.Format, req.Theme, req.Budget);
+        using var activity = AppTelemetry.Activities.StartActivity("deck.generate");
+        activity?.SetTag("deck.format", req.Format);
+        activity?.SetTag("deck.theme", req.Theme);
+        activity?.SetTag("deck.commander", req.Commander);
 
-        // Step 1: Multi-query candidate retrieval
-        var candidates = await _search.GetDeckCandidatesAsync(req, ct);
-        _logger.LogInformation("Retrieved {Count} candidate cards", candidates.Count);
-
-        // Step 2: Fetch commander oracle text for richer prompting
-        string? commanderOracleText = null;
-        if (!string.IsNullOrWhiteSpace(req.Commander))
+        var sw = Stopwatch.StartNew();
+        var status = "success";
+        try
         {
-            var commanderCard = await _mongo.GetCardByNameAsync(req.Commander, ct);
-            commanderOracleText = commanderCard?.OracleText;
+            _logger.LogInformation("Generating {Format} | Theme: {Theme} | Budget: ${Budget}",
+                req.Format, req.Theme, req.Budget);
+
+            // Step 1: Multi-query candidate retrieval
+            var candidates = await _search.GetDeckCandidatesAsync(req, ct);
+            _logger.LogInformation("Retrieved {Count} candidate cards", candidates.Count);
+
+            // Step 2: Fetch commander oracle text for richer prompting
+            string? commanderOracleText = null;
+            if (!string.IsNullOrWhiteSpace(req.Commander))
+            {
+                var commanderCard = await _mongo.GetCardByNameAsync(req.Commander, ct);
+                commanderOracleText = commanderCard?.OracleText;
+            }
+
+            // Step 2b: Tournament meta signals (optional). Annotate existing candidates
+            // and inject up to MaxMetaInjection top-meta cards that weren't retrieved.
+            Dictionary<string, MetaSignal> metaSignals =
+                new(StringComparer.OrdinalIgnoreCase);
+            MetaSignalStats? metaStats = null;
+            if (req.UseMetaSignals)
+            {
+                (candidates, metaSignals, metaStats) =
+                    await EnrichWithMetaSignalsAsync(req, candidates, ct);
+            }
+
+            // Step 2c: Themed product detection. If the user mentioned a Universes
+            // Beyond product (Avatar: TLA, Warhammer 40K, TMNT, etc.) in the theme
+            // or extra context, inject cards from those sets so the LLM can feature
+            // them in the deck. Themed cards are prepended to the candidate list so
+            // they survive the 150-card cap in AppendCandidates, and themedNames is
+            // threaded into prompt builders so they sort to the top of each category.
+            List<DetectedTheme>     detectedThemes;
+            HashSet<string>         themedNames;
+            List<string>            themedWarnings;
+            (candidates, detectedThemes, themedNames, themedWarnings) =
+                await EnrichWithThemedCardsAsync(req, candidates, ct);
+
+            var priceMap = candidates.ToDictionary(
+                c => c.Name.ToLowerInvariant(), c => c, StringComparer.OrdinalIgnoreCase);
+
+            // Step 3: Generate — two-phase for Commander, single-shot for 60-card formats
+            var isCommander = req.Format.Equals("commander", StringComparison.OrdinalIgnoreCase);
+            List<DeckSection> sections;
+            string? resolvedCommander;
+            string reasoning;
+
+            if (isCommander)
+            {
+                (sections, resolvedCommander, reasoning) =
+                    await GenerateCommanderTwoPhaseAsync(
+                        req, candidates, priceMap, commanderOracleText, metaSignals, metaStats,
+                        detectedThemes, themedNames, ct);
+            }
+            else
+            {
+                var sys  = BuildSystemPrompt(req.Format, !string.IsNullOrWhiteSpace(req.Commander));
+                var user = BuildUserPrompt(req, candidates, commanderOracleText, metaSignals, metaStats,
+                    detectedThemes, themedNames);
+                var raw  = await _llm.ChatAsync(sys, user, jsonMode: true, ct);
+                _logger.LogInformation("LLM response ({Len} chars)", raw.Length);
+                (sections, resolvedCommander, reasoning) = ParseDeckOutput(raw, req, priceMap);
+            }
+
+            // Step 4: Budget enforcement
+            var totalCost = sections.SelectMany(s => s.Cards).Sum(c => c.PriceUsd * c.Quantity);
+            if (req.Budget > 0 && totalCost > req.Budget)
+            {
+                _logger.LogWarning("Cost ${C:F2} exceeds budget ${B:F2} — enforcing", totalCost, req.Budget);
+                sections  = EnforceBudget(sections, req.Budget, priceMap);
+                totalCost = sections.SelectMany(s => s.Cards).Sum(c => c.PriceUsd * c.Quantity);
+            }
+
+            // Step 5: Post-generation validation
+            var validation = DeckValidator.Validate(sections, req.Format);
+            foreach (var w in validation.Warnings)
+                _logger.LogWarning("Validation: {W}", w);
+
+            // Merge themed-set warnings (e.g. "cards not in catalog") with deck validation warnings
+            // so the caller gets a single, complete list of actionable messages.
+            var allWarnings = new List<string>(themedWarnings);
+            allWarnings.AddRange(validation.Warnings);
+
+            var deck = new DeckResponse(
+                Commander:          resolvedCommander,
+                Theme:              req.Theme,
+                Format:             req.Format,
+                Sections:           sections,
+                EstimatedCost:      totalCost,
+                Reasoning:          reasoning,
+                GeneratedAt:        DateTime.UtcNow,
+                ValidationWarnings: allWarnings.Count > 0 ? allWarnings : null
+            );
+
+            activity?.SetTag("deck.card_count",
+                sections.SelectMany(s => s.Cards).Sum(c => c.Quantity));
+
+            // Step 6: Persist
+            await _mongo.SaveDeckAsync(new SavedDeck
+            {
+                Commander     = deck.Commander ?? "",
+                Theme         = deck.Theme,
+                Format        = deck.Format,
+                Sections      = deck.Sections,
+                EstimatedCost = deck.EstimatedCost,
+                Reasoning     = deck.Reasoning,
+                PowerLevel    = req.PowerLevel,
+                ColorIdentity = req.ColorIdentity ?? [],
+                CreatedAt     = DateTime.UtcNow
+            }, ct);
+
+            return deck;
         }
-
-        // Step 2b: Tournament meta signals (optional). Annotate existing candidates
-        // and inject up to MaxMetaInjection top-meta cards that weren't retrieved.
-        Dictionary<string, MetaSignal> metaSignals =
-            new(StringComparer.OrdinalIgnoreCase);
-        MetaSignalStats? metaStats = null;
-        if (req.UseMetaSignals)
+        catch
         {
-            (candidates, metaSignals, metaStats) =
-                await EnrichWithMetaSignalsAsync(req, candidates, ct);
+            status = "error";
+            activity?.SetStatus(ActivityStatusCode.Error);
+            throw;
         }
-
-        // Step 2c: Themed product detection. If the user mentioned a Universes
-        // Beyond product (Avatar: TLA, Warhammer 40K, TMNT, etc.) in the theme
-        // or extra context, inject cards from those sets so the LLM can feature
-        // them in the deck. Themed cards are prepended to the candidate list so
-        // they survive the 150-card cap in AppendCandidates, and themedNames is
-        // threaded into prompt builders so they sort to the top of each category.
-        List<DetectedTheme>     detectedThemes;
-        HashSet<string>         themedNames;
-        List<string>            themedWarnings;
-        (candidates, detectedThemes, themedNames, themedWarnings) =
-            await EnrichWithThemedCardsAsync(req, candidates, ct);
-
-        var priceMap = candidates.ToDictionary(
-            c => c.Name.ToLowerInvariant(), c => c, StringComparer.OrdinalIgnoreCase);
-
-        // Step 3: Generate — two-phase for Commander, single-shot for 60-card formats
-        var isCommander = req.Format.Equals("commander", StringComparison.OrdinalIgnoreCase);
-        List<DeckSection> sections;
-        string? resolvedCommander;
-        string reasoning;
-
-        if (isCommander)
+        finally
         {
-            (sections, resolvedCommander, reasoning) =
-                await GenerateCommanderTwoPhaseAsync(
-                    req, candidates, priceMap, commanderOracleText, metaSignals, metaStats,
-                    detectedThemes, themedNames, ct);
+            AppTelemetry.DeckGenerations.Add(1,
+                new TagList { { "format", req.Format }, { "status", status } });
+            AppTelemetry.DeckDuration.Record(sw.Elapsed.TotalMilliseconds,
+                new TagList { { "format", req.Format } });
         }
-        else
-        {
-            var sys  = BuildSystemPrompt(req.Format, !string.IsNullOrWhiteSpace(req.Commander));
-            var user = BuildUserPrompt(req, candidates, commanderOracleText, metaSignals, metaStats,
-                detectedThemes, themedNames);
-            var raw  = await _llm.ChatAsync(sys, user, jsonMode: true, ct);
-            _logger.LogInformation("LLM response ({Len} chars)", raw.Length);
-            (sections, resolvedCommander, reasoning) = ParseDeckOutput(raw, req, priceMap);
-        }
-
-        // Step 4: Budget enforcement
-        var totalCost = sections.SelectMany(s => s.Cards).Sum(c => c.PriceUsd * c.Quantity);
-        if (req.Budget > 0 && totalCost > req.Budget)
-        {
-            _logger.LogWarning("Cost ${C:F2} exceeds budget ${B:F2} — enforcing", totalCost, req.Budget);
-            sections  = EnforceBudget(sections, req.Budget, priceMap);
-            totalCost = sections.SelectMany(s => s.Cards).Sum(c => c.PriceUsd * c.Quantity);
-        }
-
-        // Step 5: Post-generation validation
-        var validation = DeckValidator.Validate(sections, req.Format);
-        foreach (var w in validation.Warnings)
-            _logger.LogWarning("Validation: {W}", w);
-
-        // Merge themed-set warnings (e.g. "cards not in catalog") with deck validation warnings
-        // so the caller gets a single, complete list of actionable messages.
-        var allWarnings = new List<string>(themedWarnings);
-        allWarnings.AddRange(validation.Warnings);
-
-        var deck = new DeckResponse(
-            Commander:          resolvedCommander,
-            Theme:              req.Theme,
-            Format:             req.Format,
-            Sections:           sections,
-            EstimatedCost:      totalCost,
-            Reasoning:          reasoning,
-            GeneratedAt:        DateTime.UtcNow,
-            ValidationWarnings: allWarnings.Count > 0 ? allWarnings : null
-        );
-
-        // Step 6: Persist
-        await _mongo.SaveDeckAsync(new SavedDeck
-        {
-            Commander     = deck.Commander ?? "",
-            Theme         = deck.Theme,
-            Format        = deck.Format,
-            Sections      = deck.Sections,
-            EstimatedCost = deck.EstimatedCost,
-            Reasoning     = deck.Reasoning,
-            PowerLevel    = req.PowerLevel,
-            ColorIdentity = req.ColorIdentity ?? [],
-            CreatedAt     = DateTime.UtcNow
-        }, ct);
-
-        return deck;
     }
 
     // ─── Meta Signal Enrichment ──────────────────────────────────────────────

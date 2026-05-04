@@ -1,5 +1,9 @@
 using MtgForgeAi.Logging;
 using MtgForgeAi.Services;
+using MtgForgeAi.Telemetry;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using Qdrant.Client;
 using Serilog;
 using Serilog.Core;
@@ -44,6 +48,34 @@ builder.Host.UseSerilog((ctx, cfg) =>
         cfg.WriteTo.Sink(new LokiLabelSink(lokiInner));
     }
 });
+
+// ─── OpenTelemetry ────────────────────────────────────────────────────────────
+
+var otlpEndpoint = builder.Configuration["OTEL:Endpoint"];
+
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(r => r
+        .AddService(AppTelemetry.ServiceName, serviceVersion: AppTelemetry.ServiceVersion))
+    .WithTracing(t =>
+    {
+        t.AddSource(AppTelemetry.ServiceName)
+         .AddAspNetCoreInstrumentation()
+         .AddHttpClientInstrumentation();
+
+        if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+            t.AddOtlpExporter(o => o.Endpoint = new Uri(otlpEndpoint));
+    })
+    .WithMetrics(m =>
+    {
+        m.AddMeter(AppTelemetry.ServiceName)
+         .AddAspNetCoreInstrumentation()
+         .AddHttpClientInstrumentation()
+         .AddRuntimeInstrumentation()
+         .AddPrometheusExporter();
+
+        if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+            m.AddOtlpExporter(o => o.Endpoint = new Uri(otlpEndpoint));
+    });
 
 // ─── Services ─────────────────────────────────────────────────────────────────
 
@@ -124,5 +156,6 @@ app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "MTG Forge A
 
 app.UseCors();
 app.MapControllers();
+app.MapPrometheusScrapingEndpoint("/metrics");
 
 app.Run();

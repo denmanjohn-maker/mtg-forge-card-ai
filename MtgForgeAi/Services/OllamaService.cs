@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using MtgForgeAi.Telemetry;
 
 namespace MtgForgeAi.Services;
 
@@ -36,40 +38,60 @@ public class OllamaLlmService : ILlmService
         bool jsonMode = false,
         CancellationToken ct = default)
     {
-        var payload = new OllamaChatRequest
+        using var activity = AppTelemetry.Activities.StartActivity("llm.chat");
+        activity?.SetTag("llm.model", _model);
+        activity?.SetTag("llm.provider", "ollama");
+
+        var sw = Stopwatch.StartNew();
+        var status = "success";
+        try
         {
-            Model = _model,
-            Stream = false,
-            Format = jsonMode ? "json" : null,
-            Messages =
-            [
-                new OllamaMessage { Role = "system", Content = systemPrompt },
-                new OllamaMessage { Role = "user",   Content = userMessage  }
-            ],
-            Options = new OllamaOptions
+            var payload = new OllamaChatRequest
             {
-                Temperature = 0.4,
-                NumCtx = 8192,      // Deck prompts are large; need room for candidates + JSON output
-                NumPredict = 4096   // Full deck JSON can be lengthy
+                Model = _model,
+                Stream = false,
+                Format = jsonMode ? "json" : null,
+                Messages =
+                [
+                    new OllamaMessage { Role = "system", Content = systemPrompt },
+                    new OllamaMessage { Role = "user",   Content = userMessage  }
+                ],
+                Options = new OllamaOptions
+                {
+                    Temperature = 0.4,
+                    NumCtx = 8192,      // Deck prompts are large; need room for candidates + JSON output
+                    NumPredict = 4096   // Full deck JSON can be lengthy
+                }
+            };
+
+            _logger.LogInformation("Sending request to Ollama (model={Model})", _model);
+
+            var json = JsonSerializer.Serialize(payload, JsonOptions);
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var response = await _http.PostAsync("/api/chat", content, ct);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync(ct);
+                throw new InvalidOperationException($"Ollama error {response.StatusCode}: {error}");
             }
-        };
 
-        _logger.LogInformation("Sending request to Ollama (model={Model})", _model);
+            var result = await response.Content.ReadFromJsonAsync<OllamaChatResponse>(JsonOptions, ct)
+                ?? throw new InvalidOperationException("Null response from Ollama");
 
-        var json = JsonSerializer.Serialize(payload, JsonOptions);
-        using var content = new StringContent(json, Encoding.UTF8, "application/json");
-        using var response = await _http.PostAsync("/api/chat", content, ct);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            var error = await response.Content.ReadAsStringAsync(ct);
-            throw new InvalidOperationException($"Ollama error {response.StatusCode}: {error}");
+            return result.Message?.Content ?? "";
         }
-
-        var result = await response.Content.ReadFromJsonAsync<OllamaChatResponse>(JsonOptions, ct)
-            ?? throw new InvalidOperationException("Null response from Ollama");
-
-        return result.Message?.Content ?? "";
+        catch
+        {
+            status = "error";
+            activity?.SetStatus(ActivityStatusCode.Error);
+            throw;
+        }
+        finally
+        {
+            AppTelemetry.LlmRequests.Add(1, new TagList { { "model", _model }, { "status", status } });
+            AppTelemetry.LlmLatency.Record(sw.Elapsed.TotalMilliseconds, new TagList { { "model", _model } });
+        }
     }
 
     /// <summary>

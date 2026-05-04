@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using MtgForgeAi.Models;
+using MtgForgeAi.Telemetry;
 using Qdrant.Client;
 using Qdrant.Client.Grpc;
 
@@ -47,6 +49,14 @@ public class CardSearchService
     /// </summary>
     public async Task<List<CardSearchResult>> SearchAsync(CardSearchRequest req, CancellationToken ct = default)
     {
+        using var activity = AppTelemetry.Activities.StartActivity("cards.search");
+        activity?.SetTag("query", req.Query);
+        activity?.SetTag("format", req.Format);
+        activity?.SetTag("limit", req.Limit);
+
+        var sw = Stopwatch.StartNew();
+        AppTelemetry.SearchRequests.Add(1, new TagList { { "format", req.Format } });
+
         var vector = await _embedder.EmbedAsync(req.Query, ct);
 
         // Build Qdrant filter conditions
@@ -119,7 +129,7 @@ public class CardSearchService
             cancellationToken: ct
         );
 
-        return results.Select(r => new CardSearchResult(
+        var searchResults = results.Select(r => new CardSearchResult(
             Name:        r.Payload.GetValueOrDefault("name")?.StringValue ?? "",
             TypeLine:    r.Payload.GetValueOrDefault("type_line")?.StringValue ?? "",
             OracleText:  r.Payload.GetValueOrDefault("oracle_text")?.StringValue,
@@ -130,6 +140,11 @@ public class CardSearchService
             ScryfallUri: r.Payload.GetValueOrDefault("scryfall_uri")?.StringValue,
             Score:       r.Score
         )).ToList();
+
+        AppTelemetry.SearchDuration.Record(sw.Elapsed.TotalMilliseconds, new TagList { { "format", req.Format } });
+        activity?.SetTag("results.count", searchResults.Count);
+
+        return searchResults;
     }
 
     /// <summary>

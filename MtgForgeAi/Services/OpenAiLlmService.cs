@@ -1,8 +1,10 @@
+using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using MtgForgeAi.Telemetry;
 
 namespace MtgForgeAi.Services;
 
@@ -38,36 +40,56 @@ public class OpenAiLlmService : ILlmService
         bool jsonMode = false,
         CancellationToken ct = default)
     {
-        var payload = new ChatCompletionRequest
+        using var activity = AppTelemetry.Activities.StartActivity("llm.chat");
+        activity?.SetTag("llm.model", _model);
+        activity?.SetTag("llm.provider", "openai-compatible");
+
+        var sw = Stopwatch.StartNew();
+        var status = "success";
+        try
         {
-            Model = _model,
-            Stream = false,
-            MaxTokens = 4096,
-            Temperature = 0.4,
-            ResponseFormat = jsonMode ? new ResponseFormat { Type = "json_object" } : null,
-            Messages =
-            [
-                new ChatMessage { Role = "system", Content = systemPrompt },
-                new ChatMessage { Role = "user",   Content = userMessage  }
-            ]
-        };
+            var payload = new ChatCompletionRequest
+            {
+                Model = _model,
+                Stream = false,
+                MaxTokens = 4096,
+                Temperature = 0.4,
+                ResponseFormat = jsonMode ? new ResponseFormat { Type = "json_object" } : null,
+                Messages =
+                [
+                    new ChatMessage { Role = "system", Content = systemPrompt },
+                    new ChatMessage { Role = "user",   Content = userMessage  }
+                ]
+            };
 
-        _logger.LogInformation("Sending request to OpenAI-compatible API (model={Model})", _model);
+            _logger.LogInformation("Sending request to OpenAI-compatible API (model={Model})", _model);
 
-        var json = JsonSerializer.Serialize(payload, JsonOptions);
-        using var content = new StringContent(json, Encoding.UTF8, "application/json");
-        using var response = await _http.PostAsync("/v1/chat/completions", content, ct);
+            var json = JsonSerializer.Serialize(payload, JsonOptions);
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var response = await _http.PostAsync("/v1/chat/completions", content, ct);
 
-        if (!response.IsSuccessStatusCode)
-        {
-            var error = await response.Content.ReadAsStringAsync(ct);
-            throw new InvalidOperationException($"LLM API error {response.StatusCode}: {error}");
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync(ct);
+                throw new InvalidOperationException($"LLM API error {response.StatusCode}: {error}");
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<ChatCompletionResponse>(JsonOptions, ct)
+                ?? throw new InvalidOperationException("Null response from LLM API");
+
+            return result.Choices?.FirstOrDefault()?.Message?.Content ?? "";
         }
-
-        var result = await response.Content.ReadFromJsonAsync<ChatCompletionResponse>(JsonOptions, ct)
-            ?? throw new InvalidOperationException("Null response from LLM API");
-
-        return result.Choices?.FirstOrDefault()?.Message?.Content ?? "";
+        catch
+        {
+            status = "error";
+            activity?.SetStatus(ActivityStatusCode.Error);
+            throw;
+        }
+        finally
+        {
+            AppTelemetry.LlmRequests.Add(1, new TagList { { "model", _model }, { "status", status } });
+            AppTelemetry.LlmLatency.Record(sw.Elapsed.TotalMilliseconds, new TagList { { "model", _model } });
+        }
     }
 
     public async IAsyncEnumerable<string> StreamAsync(
