@@ -1,3 +1,4 @@
+using MongoDB.Bson;
 using MongoDB.Driver;
 using MtgForgeAi.Models;
 
@@ -198,8 +199,6 @@ public class MongoService : IMetaSignalRepository
         var collection = _db.GetCollection<MtgCard>("cards");
         var indexKeys = Builders<MtgCard>.IndexKeys;
         await collection.Indexes.CreateManyAsync([
-            new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.ScryfallId),
-                new CreateIndexOptions { Unique = true }),
             new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.Name)),
             new CreateIndexModel<MtgCard>(indexKeys.Ascending(c => c.ColorIdentity)),
             // Supports themed-set lookups in GetCardsBySetNameSubstringsAsync.
@@ -217,7 +216,9 @@ public class MongoService : IMetaSignalRepository
 
     public async Task<int> BulkUpsertCardsAsync(List<MtgCard> cards, CancellationToken ct = default)
     {
-        var collection = _db.GetCollection<MtgCard>("cards");
+        // Use BsonDocument collection for writes so we can explicitly stamp _id = ScryfallId,
+        // bypassing any BSON class-map ambiguity that previously produced _id:null on upsert.
+        var rawCollection = _db.GetCollection<BsonDocument>("cards");
 
         // Ensure indexes (idempotent — MongoDB skips existing indexes)
         await EnsureCardIndexesAsync(ct);
@@ -227,27 +228,39 @@ public class MongoService : IMetaSignalRepository
         for (int i = 0; i < cards.Count; i += batchSize)
         {
             var batch = cards.Skip(i).Take(batchSize).ToList();
-            var ops = batch.Select(card =>
-                new ReplaceOneModel<MtgCard>(
-                    Builders<MtgCard>.Filter.Eq(c => c.ScryfallId, card.ScryfallId),
-                    card)
-                { IsUpsert = true }
-            ).ToList();
+
+            var ops = new List<WriteModel<BsonDocument>>(batch.Count);
+            foreach (var card in batch)
+            {
+                if (string.IsNullOrEmpty(card.ScryfallId))
+                {
+                    _logger.LogWarning("Skipping card '{Name}': null/empty ScryfallId reached upsert", card.Name);
+                    continue;
+                }
+
+                var doc = card.ToBsonDocument();
+                // Unconditionally overwrite _id with the ScryfallId string so the BSON
+                // class-map's own serialization of [BsonId] cannot interfere.
+                doc["_id"] = new BsonString(card.ScryfallId);
+
+                ops.Add(new ReplaceOneModel<BsonDocument>(
+                    Builders<BsonDocument>.Filter.Eq("_id", card.ScryfallId),
+                    doc)
+                { IsUpsert = true });
+            }
+
+            if (ops.Count == 0) continue;
 
             try
             {
-                // ordered=false: a single failing op (e.g. transient duplicate-key
-                // race) does not abort the rest of the batch — matches the reference
-                // Python ingestion script's behaviour and prevents whole-batch loss.
-                var result = await collection.BulkWriteAsync(
+                // ordered=false: a single failing op does not abort the rest of the batch.
+                var result = await rawCollection.BulkWriteAsync(
                     ops,
                     new BulkWriteOptions { IsOrdered = false },
                     cancellationToken: ct);
-                // MatchedCount covers replacements (including ones where content was
-                // identical, which leave ModifiedCount at 0) plus Upserts for new docs.
                 upserted += (int)(result.Upserts.Count + result.MatchedCount);
             }
-            catch (MongoBulkWriteException<MtgCard> ex)
+            catch (MongoBulkWriteException<BsonDocument> ex)
             {
                 _logger.LogWarning(
                     "MongoDB batch write partial failure: {WriteErrors} of {Total} ops failed: {Message}",
