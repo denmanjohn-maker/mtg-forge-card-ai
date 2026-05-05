@@ -28,6 +28,11 @@ builder.Host.UseSerilog((ctx, cfg) =>
     var lokiUrl = ctx.Configuration["Loki:Url"];
     if (!string.IsNullOrWhiteSpace(lokiUrl))
     {
+        // Railway (and other platforms) may supply the hostname without a
+        // scheme (e.g. "loki.railway.internal:3100").  HttpClient throws
+        // NotSupportedException when the URI has no scheme, so default to http.
+        if (!lokiUrl.Contains("://"))
+            lokiUrl = "http://" + lokiUrl;
         var lokiUser     = ctx.Configuration["Loki:Username"] ?? string.Empty;
         var lokiPassword = ctx.Configuration["Loki:Password"] ?? string.Empty;
         var env          = ctx.HostingEnvironment.EnvironmentName;
