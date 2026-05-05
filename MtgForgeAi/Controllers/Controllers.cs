@@ -197,6 +197,7 @@ public class AdminController : ControllerBase
     /// </summary>
     [HttpGet("ingest")]
     [HttpGet("ingest-status")]
+    [HttpGet("/api/ingest/status")]
     public async Task<ActionResult<IngestionStatusResponse>> IngestStatus(CancellationToken ct)
     {
         var (isRunning, lastStartedAt, lastCompletedAt, lastResult, cardsEmbedded, totalToEmbed)
