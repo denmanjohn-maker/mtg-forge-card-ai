@@ -51,7 +51,15 @@ builder.Host.UseSerilog((ctx, cfg) =>
 
 // ─── OpenTelemetry ────────────────────────────────────────────────────────────
 
-var otlpEndpoint = builder.Configuration["OTEL:Endpoint"];
+// OTEL:TracesEndpoint  — OTLP destination for distributed traces (e.g. Tempo).
+//                        Falls back to the legacy OTEL:Endpoint key so existing
+//                        deployments continue to work without change.
+// OTEL:MetricsEndpoint — OTLP destination for metrics (e.g. an OTel Collector).
+//                        When empty, metrics are exposed only via the Prometheus
+//                        scraping endpoint at /metrics (recommended default).
+var otlpTracesEndpoint  = builder.Configuration["OTEL:TracesEndpoint"]
+                          ?? builder.Configuration["OTEL:Endpoint"];
+var otlpMetricsEndpoint = builder.Configuration["OTEL:MetricsEndpoint"];
 
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(r => r
@@ -62,8 +70,8 @@ builder.Services.AddOpenTelemetry()
          .AddAspNetCoreInstrumentation()
          .AddHttpClientInstrumentation();
 
-        if (!string.IsNullOrWhiteSpace(otlpEndpoint))
-            t.AddOtlpExporter(o => o.Endpoint = new Uri(otlpEndpoint));
+        if (!string.IsNullOrWhiteSpace(otlpTracesEndpoint))
+            t.AddOtlpExporter(o => o.Endpoint = new Uri(otlpTracesEndpoint));
     })
     .WithMetrics(m =>
     {
@@ -73,8 +81,8 @@ builder.Services.AddOpenTelemetry()
          .AddRuntimeInstrumentation()
          .AddPrometheusExporter();
 
-        if (!string.IsNullOrWhiteSpace(otlpEndpoint))
-            m.AddOtlpExporter(o => o.Endpoint = new Uri(otlpEndpoint));
+        if (!string.IsNullOrWhiteSpace(otlpMetricsEndpoint))
+            m.AddOtlpExporter(o => o.Endpoint = new Uri(otlpMetricsEndpoint));
     });
 
 // ─── Services ─────────────────────────────────────────────────────────────────

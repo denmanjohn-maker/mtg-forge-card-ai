@@ -50,8 +50,10 @@ services:
       # (Apple Silicon Metal acceleration doesn't work inside Docker)
       - Ollama__BaseUrl=http://host.docker.internal:11434
       - Ollama__Model=llama3.1:8b
-      # OpenTelemetry — traces sent to Tempo via OTLP gRPC
-      - OTEL__Endpoint=http://tempo:4317
+      # OpenTelemetry — traces sent to Tempo via OTLP gRPC.
+      # Metrics are scraped by Prometheus from /metrics instead of pushed via OTLP,
+      # so only the traces endpoint is set here.
+      - OTEL__TracesEndpoint=http://tempo:4317
     depends_on:
       mongodb:
         condition: service_healthy
