@@ -7,7 +7,13 @@ using OpenTelemetry.Trace;
 using Qdrant.Client;
 using Serilog;
 using Serilog.Core;
+using Serilog.Debugging;
 using Serilog.Sinks.GrafanaLoki;
+
+// Surface internal Serilog/Loki sink errors (HTTP failures, queue overflows,
+// event size limit drops) so they are visible in the container console instead
+// of being silently swallowed.
+SelfLog.Enable(msg => Console.Error.WriteLine("[Serilog] {0}", msg));
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -46,6 +52,11 @@ builder.Host.UseSerilog((ctx, cfg) =>
             .CreateLogger();
 
         cfg.WriteTo.Sink(new LokiLabelSink(lokiInner));
+
+        // Log to console so the Loki URL is confirmed at startup and the
+        // first push to Loki is easy to spot if it fails in SelfLog output.
+        Console.WriteLine("[Serilog] Loki sink configured → {0} (env={1}, auth={2})",
+            lokiUrl, env, credentials is null ? "none" : "basic");
     }
 });
 
