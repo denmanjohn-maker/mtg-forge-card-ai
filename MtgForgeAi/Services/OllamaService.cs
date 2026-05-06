@@ -38,9 +38,12 @@ public class OllamaLlmService : ILlmService
         bool jsonMode = false,
         CancellationToken ct = default)
     {
-        using var activity = AppTelemetry.Activities.StartActivity("llm.chat");
-        activity?.SetTag("llm.model", _model);
-        activity?.SetTag("llm.provider", "ollama");
+        using var activity = AppTelemetry.Activities.StartActivity("gen_ai.chat");
+        activity?.SetTag(AppTelemetry.GenAiSystem, AppTelemetry.SystemOllama);
+        activity?.SetTag(AppTelemetry.GenAiOperationName, "chat");
+        activity?.SetTag(AppTelemetry.GenAiRequestModel, _model);
+        activity?.SetTag(AppTelemetry.GenAiRequestMaxTokens, 4096);
+        activity?.SetTag(AppTelemetry.GenAiRequestTemperature, 0.4);
 
         var sw = Stopwatch.StartNew();
         var status = "success";
@@ -78,6 +81,11 @@ public class OllamaLlmService : ILlmService
 
             var result = await response.Content.ReadFromJsonAsync<OllamaChatResponse>(JsonOptions, ct)
                 ?? throw new InvalidOperationException("Null response from Ollama");
+
+            if (result.PromptEvalCount > 0)
+                activity?.SetTag(AppTelemetry.GenAiUsageInputTokens, result.PromptEvalCount);
+            if (result.EvalCount > 0)
+                activity?.SetTag(AppTelemetry.GenAiUsageOutputTokens, result.EvalCount);
 
             return result.Message?.Content ?? "";
         }
@@ -197,6 +205,8 @@ public class OllamaLlmService : ILlmService
     {
         public OllamaMessage? Message { get; set; }
         public bool Done { get; set; }
+        public int PromptEvalCount { get; set; }
+        public int EvalCount { get; set; }
     }
 
     private class OllamaTagsResponse

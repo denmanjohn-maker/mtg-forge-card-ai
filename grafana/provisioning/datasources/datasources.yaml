@@ -14,16 +14,37 @@ datasources:
     url: http://tempo:3200
     editable: true
     jsonData:
+      httpMethod: GET
       tracesToLogsV2:
         datasourceUid: loki
+        spanStartTimeShift: "-1m"
+        spanEndTimeShift: "1m"
         filterByTraceID: true
+        filterBySpanID: false
+      tracesToMetrics:
+        datasourceUid: prometheus
+        spanStartTimeShift: "-1m"
+        spanEndTimeShift: "1m"
+        tags:
+          - key: service.name
+            value: service_name
       serviceMap:
         datasourceUid: prometheus
       nodeGraph:
         enabled: true
+      search:
+        hide: false
+        lokiSearch:
+          datasourceUid: loki
 
   - name: Loki
     type: loki
     uid: loki
     url: "${GF_LOKI_URL}"
     editable: true
+    jsonData:
+      derivedFields:
+        - datasourceUid: tempo
+          matcherRegex: 'TraceId=([a-f0-9]{32})'
+          name: TraceID
+          url: "${__value.raw}"

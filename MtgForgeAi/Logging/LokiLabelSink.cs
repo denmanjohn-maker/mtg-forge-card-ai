@@ -28,16 +28,24 @@ internal sealed class LokiLabelSink(ILogEventSink inner) : ILogEventSink, IDispo
 {
     public void Emit(LogEvent logEvent)
     {
-        // Render the full message with all structured property values
-        // substituted so they remain visible in the Grafana log line even
-        // after we strip the properties below.
+        // Render the full message with all structured property values substituted
+        // so they remain visible in the Grafana log line after stripping below.
         var rendered = logEvent.RenderMessage();
 
-        // Build a plain-text MessageTemplate (no property holes) so the
-        // inner Loki sink has no properties to promote to stream labels.
-        var template = new MessageTemplate(
-            rendered,
-            [new TextToken(rendered)]);
+        // Append TraceId to the rendered text so Grafana Loki can match it with
+        // a derivedFields regex and link to the corresponding Tempo trace.
+        // LokiLabelSink strips all properties to stay under Loki's 15-label limit,
+        // so this is the only way TraceId survives into the log line.
+        if (logEvent.Properties.TryGetValue("TraceId", out var traceIdProp))
+        {
+            var traceId = traceIdProp.ToString().Trim('"');
+            if (!string.IsNullOrEmpty(traceId))
+                rendered = $"{rendered} TraceId={traceId}";
+        }
+
+        // Build a plain-text MessageTemplate (no property holes) so the inner
+        // Loki sink has no properties to promote to stream labels.
+        var template = new MessageTemplate(rendered, [new TextToken(rendered)]);
 
         var stripped = new LogEvent(
             logEvent.Timestamp,
