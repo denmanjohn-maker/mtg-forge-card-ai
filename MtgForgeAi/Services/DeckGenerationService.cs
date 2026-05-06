@@ -189,6 +189,9 @@ public class DeckGenerationService
                 new TagList { { "format", req.Format }, { "status", status } });
             AppTelemetry.DeckDuration.Record(sw.Elapsed.TotalMilliseconds,
                 new TagList { { "format", req.Format } });
+            _logger.LogInformation(
+                "metric: mtg.deck.generations +1 | mtg.deck.generation.duration {DurationMs:F0}ms | format={Format} status={Status}",
+                sw.Elapsed.TotalMilliseconds, req.Format, status);
         }
     }
 

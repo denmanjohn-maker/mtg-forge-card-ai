@@ -56,6 +56,7 @@ public class CardSearchService
 
         var sw = Stopwatch.StartNew();
         AppTelemetry.SearchRequests.Add(1, new TagList { { "format", req.Format } });
+        _logger.LogDebug("metric: mtg.card.searches +1 | format={Format}", req.Format);
 
         var vector = await _embedder.EmbedAsync(req.Query, ct);
 
@@ -143,6 +144,9 @@ public class CardSearchService
 
         AppTelemetry.SearchDuration.Record(sw.Elapsed.TotalMilliseconds, new TagList { { "format", req.Format } });
         activity?.SetTag("results.count", searchResults.Count);
+        _logger.LogDebug(
+            "metric: mtg.card.search.duration {DurationMs:F0}ms | format={Format} results={Count}",
+            sw.Elapsed.TotalMilliseconds, req.Format, searchResults.Count);
 
         return searchResults;
     }
