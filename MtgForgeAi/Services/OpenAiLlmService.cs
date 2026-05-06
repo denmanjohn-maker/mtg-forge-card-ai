@@ -16,6 +16,7 @@ public class OpenAiLlmService : ILlmService
 {
     private readonly HttpClient _http;
     private readonly string _model;
+    private readonly string _genAiSystem;
     private readonly ILogger<OpenAiLlmService> _logger;
 
     public OpenAiLlmService(HttpClient http, IConfiguration config, ILogger<OpenAiLlmService> logger)
@@ -32,6 +33,10 @@ public class OpenAiLlmService : ILlmService
         _http.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
         _http.Timeout = TimeSpan.FromMinutes(5);
+
+        _genAiSystem = baseUrl.Contains("together", StringComparison.OrdinalIgnoreCase)
+            ? AppTelemetry.SystemTogetherAi
+            : "openai_compatible";
     }
 
     public async Task<string> ChatAsync(
@@ -41,7 +46,7 @@ public class OpenAiLlmService : ILlmService
         CancellationToken ct = default)
     {
         using var activity = AppTelemetry.Activities.StartActivity("gen_ai.chat");
-        activity?.SetTag(AppTelemetry.GenAiSystem, AppTelemetry.SystemTogetherAi);
+        activity?.SetTag(AppTelemetry.GenAiSystem, _genAiSystem);
         activity?.SetTag(AppTelemetry.GenAiOperationName, "chat");
         activity?.SetTag(AppTelemetry.GenAiRequestModel, _model);
         activity?.SetTag(AppTelemetry.GenAiRequestMaxTokens, 4096);

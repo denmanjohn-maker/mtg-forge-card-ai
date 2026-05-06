@@ -77,7 +77,7 @@ builder.Services.AddOpenTelemetry()
         .AddService(AppTelemetry.ServiceName, serviceVersion: AppTelemetry.ServiceVersion)
         .AddAttributes(new Dictionary<string, object>
         {
-            ["deployment.environment"] = builder.Environment.EnvironmentName.ToLowerInvariant()
+            ["deployment.environment.name"] = builder.Environment.EnvironmentName.ToLowerInvariant()
         }))
     .WithTracing(t =>
     {
@@ -85,8 +85,8 @@ builder.Services.AddOpenTelemetry()
          .AddAspNetCoreInstrumentation(opts =>
          {
              opts.Filter = ctx =>
-                 ctx.Request.Path != "/healthz" &&
-                 ctx.Request.Path != "/metrics";
+                 !ctx.Request.Path.StartsWithSegments("/api/health") &&
+                 !ctx.Request.Path.StartsWithSegments("/metrics");
          })
          .AddHttpClientInstrumentation(opts =>
          {
