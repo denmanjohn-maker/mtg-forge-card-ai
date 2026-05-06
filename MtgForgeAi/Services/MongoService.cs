@@ -242,6 +242,12 @@ public class MongoService : IMetaSignalRepository
                 // Unconditionally overwrite _id with the ScryfallId string so the BSON
                 // class-map's own serialization of [BsonId] cannot interfere.
                 doc["_id"] = new BsonString(card.ScryfallId);
+                // Also stamp a lowercase `id` field equal to the Scryfall ID so docs
+                // written from .NET match the schema produced by scripts/ingest_cards.py
+                // (which stores `card["id"]` = Scryfall ID and creates a unique index
+                // on `id`). Without this, every .NET-ingested doc has `id: null` and
+                // bulk upserts fail with E11000 duplicate key on `id_1`.
+                doc["id"] = new BsonString(card.ScryfallId);
 
                 ops.Add(new ReplaceOneModel<BsonDocument>(
                     Builders<BsonDocument>.Filter.Eq("_id", card.ScryfallId),
