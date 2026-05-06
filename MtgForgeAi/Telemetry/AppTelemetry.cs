@@ -13,6 +13,21 @@ internal static class AppTelemetry
     internal static readonly ActivitySource Activities = new(ServiceName);
     internal static readonly Meter Meter = new(ServiceName);
 
+    // ─── GenAI semantic convention attributes ─────────────────────────────────
+    // https://opentelemetry.io/docs/specs/semconv/gen-ai/
+
+    internal const string GenAiSystem             = "gen_ai.system";
+    internal const string GenAiOperationName      = "gen_ai.operation.name";
+    internal const string GenAiRequestModel       = "gen_ai.request.model";
+    internal const string GenAiRequestMaxTokens   = "gen_ai.request.max_tokens";
+    internal const string GenAiRequestTemperature = "gen_ai.request.temperature";
+    internal const string GenAiUsageInputTokens   = "gen_ai.usage.input_tokens";
+    internal const string GenAiUsageOutputTokens  = "gen_ai.usage.output_tokens";
+
+    // Well-known gen_ai.system values
+    internal const string SystemTogetherAi = "together_ai";
+    internal const string SystemOllama     = "ollama";
+
     // ─── Counters ─────────────────────────────────────────────────────────────
 
     internal static readonly Counter<long> DeckGenerations =

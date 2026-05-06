@@ -40,9 +40,12 @@ public class OpenAiLlmService : ILlmService
         bool jsonMode = false,
         CancellationToken ct = default)
     {
-        using var activity = AppTelemetry.Activities.StartActivity("llm.chat");
-        activity?.SetTag("llm.model", _model);
-        activity?.SetTag("llm.provider", "openai-compatible");
+        using var activity = AppTelemetry.Activities.StartActivity("gen_ai.chat");
+        activity?.SetTag(AppTelemetry.GenAiSystem, AppTelemetry.SystemTogetherAi);
+        activity?.SetTag(AppTelemetry.GenAiOperationName, "chat");
+        activity?.SetTag(AppTelemetry.GenAiRequestModel, _model);
+        activity?.SetTag(AppTelemetry.GenAiRequestMaxTokens, 4096);
+        activity?.SetTag(AppTelemetry.GenAiRequestTemperature, 0.4);
 
         var sw = Stopwatch.StartNew();
         var status = "success";
@@ -76,6 +79,12 @@ public class OpenAiLlmService : ILlmService
 
             var result = await response.Content.ReadFromJsonAsync<ChatCompletionResponse>(JsonOptions, ct)
                 ?? throw new InvalidOperationException("Null response from LLM API");
+
+            if (result.Usage is { } usage)
+            {
+                activity?.SetTag(AppTelemetry.GenAiUsageInputTokens, usage.PromptTokens);
+                activity?.SetTag(AppTelemetry.GenAiUsageOutputTokens, usage.CompletionTokens);
+            }
 
             return result.Choices?.FirstOrDefault()?.Message?.Content ?? "";
         }
@@ -183,6 +192,13 @@ public class OpenAiLlmService : ILlmService
     private class ChatCompletionResponse
     {
         public List<ChatChoice>? Choices { get; set; }
+        public ChatUsage? Usage { get; set; }
+    }
+
+    private class ChatUsage
+    {
+        public int PromptTokens { get; set; }
+        public int CompletionTokens { get; set; }
     }
 
     private class ChatChoice

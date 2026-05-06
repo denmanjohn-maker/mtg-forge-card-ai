@@ -1,6 +1,7 @@
 using MtgForgeAi.Logging;
 using MtgForgeAi.Services;
 using MtgForgeAi.Telemetry;
+using OpenTelemetry.Exporter;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -73,15 +74,31 @@ var otlpEndpoint = builder.Configuration["OTEL:Endpoint"];
 
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(r => r
-        .AddService(AppTelemetry.ServiceName, serviceVersion: AppTelemetry.ServiceVersion))
+        .AddService(AppTelemetry.ServiceName, serviceVersion: AppTelemetry.ServiceVersion)
+        .AddAttributes(new Dictionary<string, object>
+        {
+            ["deployment.environment"] = builder.Environment.EnvironmentName.ToLowerInvariant()
+        }))
     .WithTracing(t =>
     {
         t.AddSource(AppTelemetry.ServiceName)
-         .AddAspNetCoreInstrumentation()
-         .AddHttpClientInstrumentation();
+         .AddAspNetCoreInstrumentation(opts =>
+         {
+             opts.Filter = ctx =>
+                 ctx.Request.Path != "/healthz" &&
+                 ctx.Request.Path != "/metrics";
+         })
+         .AddHttpClientInstrumentation(opts =>
+         {
+             opts.RecordException = true;
+         });
 
         if (!string.IsNullOrWhiteSpace(otlpEndpoint))
-            t.AddOtlpExporter(o => o.Endpoint = new Uri(otlpEndpoint));
+            t.AddOtlpExporter(o =>
+            {
+                o.Endpoint = new Uri(otlpEndpoint);
+                o.Protocol = OtlpExportProtocol.Grpc;
+            });
     })
     .WithMetrics(m =>
     {
