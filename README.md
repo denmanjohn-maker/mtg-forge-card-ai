@@ -199,9 +199,14 @@ LLM__ApiKey=your-key
 Loki__Url=https://loki.up.railway.app
 Loki__Username=your-loki-username
 Loki__Password=your-loki-password
+OTEL__Endpoint=https://your-otel-collector-endpoint
+OTEL__Protocol=http
+OTEL__Headers=Authorization=Basic your-base64-token
 ```
 
 > **Loki logging**: Set `Loki__Url` to the full HTTP URL of your Railway Loki instance. If your Loki instance does not require authentication, leave `Loki__Username` and `Loki__Password` blank (or omit them). When `Loki__Url` is empty the Loki sink is disabled and only console logging is active — this is the default for local dev.
+
+> **OpenTelemetry**: Set `OTEL__Endpoint` to your OTLP collector URL (e.g. a Grafana Cloud or Honeycomb endpoint). `OTEL__Protocol` accepts `grpc` (default) or `http` — Railway's built-in OTLP collector and most cloud receivers use `http` (HTTP/protobuf). `OTEL__Headers` is a comma-separated list of `key=value` pairs used for authentication (e.g. `Authorization=Basic <token>`). When `OTEL__Endpoint` is empty the OTLP exporter is disabled; the Prometheus scraping endpoint at `/metrics` is always active.
 
 ---
 

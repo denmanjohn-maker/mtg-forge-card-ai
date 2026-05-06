@@ -71,6 +71,23 @@ builder.Host.UseSerilog((ctx, cfg) =>
 // ─── OpenTelemetry ────────────────────────────────────────────────────────────
 
 var otlpEndpoint = builder.Configuration["OTEL:Endpoint"];
+var otlpProtocol = builder.Configuration["OTEL:Protocol"];
+var otlpHeaders  = builder.Configuration["OTEL:Headers"];
+
+// Determine OTLP export protocol.  Railway's collector (and most cloud OTLP
+// receivers) use HTTP/protobuf; gRPC is kept as the default so existing setups
+// are not broken.  Set OTEL__Protocol=http in Railway env vars to use HTTP.
+var resolvedOtlpProtocol = otlpProtocol?.Trim().ToLowerInvariant() == "http"
+    ? OtlpExportProtocol.HttpProtobuf
+    : OtlpExportProtocol.Grpc;
+
+void ConfigureOtlp(OtlpExporterOptions o)
+{
+    o.Endpoint = new Uri(otlpEndpoint!);
+    o.Protocol = resolvedOtlpProtocol;
+    if (!string.IsNullOrWhiteSpace(otlpHeaders))
+        o.Headers = otlpHeaders;
+}
 
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(r => r
@@ -94,11 +111,7 @@ builder.Services.AddOpenTelemetry()
          });
 
         if (!string.IsNullOrWhiteSpace(otlpEndpoint))
-            t.AddOtlpExporter(o =>
-            {
-                o.Endpoint = new Uri(otlpEndpoint);
-                o.Protocol = OtlpExportProtocol.Grpc;
-            });
+            t.AddOtlpExporter(ConfigureOtlp);
     })
     .WithMetrics(m =>
     {
@@ -109,7 +122,7 @@ builder.Services.AddOpenTelemetry()
          .AddPrometheusExporter();
 
         if (!string.IsNullOrWhiteSpace(otlpEndpoint))
-            m.AddOtlpExporter(o => o.Endpoint = new Uri(otlpEndpoint));
+            m.AddOtlpExporter(ConfigureOtlp);
     });
 
 // ─── Services ─────────────────────────────────────────────────────────────────
