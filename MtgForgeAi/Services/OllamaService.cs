@@ -99,6 +99,9 @@ public class OllamaLlmService : ILlmService
         {
             AppTelemetry.LlmRequests.Add(1, new TagList { { "model", _model }, { "status", status } });
             AppTelemetry.LlmLatency.Record(sw.Elapsed.TotalMilliseconds, new TagList { { "model", _model } });
+            _logger.LogInformation(
+                "metric: mtg.llm.requests +1 | mtg.llm.request.duration {DurationMs:F0}ms | model={Model} status={Status}",
+                sw.Elapsed.TotalMilliseconds, _model, status);
         }
     }
 

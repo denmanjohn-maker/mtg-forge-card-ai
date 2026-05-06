@@ -127,6 +127,9 @@ public class CardIngestionService
         result.ElapsedSeconds = sw.Elapsed.TotalSeconds;
         AppTelemetry.IngestionDuration.Record(result.ElapsedSeconds);
         activity?.SetTag("elapsed_seconds", result.ElapsedSeconds);
+        _logger.LogInformation(
+            "metric: mtg.ingestion.duration {ElapsedSeconds:F1}s | pipeline complete",
+            result.ElapsedSeconds);
         return result;
     }
 

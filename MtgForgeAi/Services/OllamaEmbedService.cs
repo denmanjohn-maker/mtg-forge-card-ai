@@ -81,6 +81,9 @@ public class OllamaEmbedService
         {
             AppTelemetry.EmbeddingLatency.Record(sw.Elapsed.TotalMilliseconds,
                 new TagList { { "model", _model } });
+            _logger.LogDebug(
+                "metric: mtg.embed.request.duration {DurationMs:F1}ms | model={Model}",
+                sw.Elapsed.TotalMilliseconds, _model);
         }
     }
 
