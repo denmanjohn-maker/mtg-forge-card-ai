@@ -7,3 +7,10 @@ scrape_configs:
     static_configs:
       - targets: ['mtgforge:8080']
     metrics_path: /metrics
+
+  # Picks up OTLP-forwarded metrics from the collector — primarily covers the
+  # frontend app and any other service that can't expose a Prometheus scrape
+  # endpoint directly (e.g. browser clients, serverless functions).
+  - job_name: otel-collector
+    static_configs:
+      - targets: ['otel-collector:8889']
