@@ -50,35 +50,19 @@ services:
       # (Apple Silicon Metal acceleration doesn't work inside Docker)
       - Ollama__BaseUrl=http://host.docker.internal:11434
       - Ollama__Model=llama3.1:8b
-      # OpenTelemetry — telemetry sent to the collector, which fans out to Tempo / Prometheus
-      - OTEL__Endpoint=http://otel-collector:4317
+      # OpenTelemetry — traces sent to Tempo via OTLP gRPC (local dev).
+      # On Railway set OTEL__Endpoint=http://alloy.railway.internal:4317 so
+      # telemetry flows to the shared forge-observability Alloy collector.
+      - OTEL__Endpoint=http://tempo:4317
     depends_on:
       mongodb:
         condition: service_healthy
       qdrant:
         condition: service_started
-      otel-collector:
+      tempo:
         condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
-
-  # ─── OpenTelemetry Collector ──────────────────────────────────────────────────
-  # Central telemetry hub: receives OTLP from the .NET service (gRPC) and from
-  # the frontend browser app (HTTP with CORS), then fans out to Tempo and
-  # Prometheus.  Expose 4317/4318 on the host so the frontend can reach it.
-  otel-collector:
-    image: otel/opentelemetry-collector-contrib:latest
-    container_name: mtg_otel_collector
-    restart: unless-stopped
-    ports:
-      - "4317:4317"   # OTLP gRPC  — used by the .NET service
-      - "4318:4318"   # OTLP HTTP  — used by the frontend (browser, CORS-enabled)
-      - "8889:8889"   # Prometheus scrape endpoint for OTLP-forwarded metrics
-      - "13133:13133" # Health check
-    volumes:
-      - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
-    depends_on:
-      - tempo
 
   # ─── Prometheus ───────────────────────────────────────────────────────────────
   prometheus:
@@ -95,17 +79,16 @@ services:
       - '--storage.tsdb.retention.time=7d'
     depends_on:
       - mtgforge
-      - otel-collector
 
   # ─── Grafana Tempo (distributed tracing) ─────────────────────────────────────
-  # Tempo no longer needs OTLP ports exposed to the host — all external telemetry
-  # goes through the collector, which forwards traces internally to Tempo.
   tempo:
     image: grafana/tempo:latest
     container_name: mtg_tempo
     restart: unless-stopped
     ports:
-      - "3200:3200"   # Tempo API / query (used by Grafana)
+      - "3200:3200"   # Tempo API / query
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
     volumes:
       - ./tempo.yaml:/etc/tempo.yaml:ro
       - tempo_data:/var/tempo

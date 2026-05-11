@@ -120,11 +120,9 @@ builder.Services.AddOpenTelemetry()
          .AddHttpClientInstrumentation()
          .AddRuntimeInstrumentation()
          .AddPrometheusExporter();
-        // Metrics are scraped by Prometheus directly at /metrics.
-        // OTLP metrics export is intentionally omitted here to avoid duplicate
-        // time-series in Prometheus (the collector also exposes its own scrape
-        // endpoint at :8889 for services that cannot host a /metrics endpoint,
-        // such as the browser-based frontend app).
+
+        if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+            m.AddOtlpExporter(ConfigureOtlp);
     });
 
 // ─── Services ─────────────────────────────────────────────────────────────────
