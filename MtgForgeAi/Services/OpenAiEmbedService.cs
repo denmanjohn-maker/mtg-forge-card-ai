@@ -59,7 +59,7 @@ public class OpenAiEmbedService : IEmbedService
             var json = JsonSerializer.Serialize(payload);
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-            var response = await _http.PostAsync("v1/embeddings", content, ct);
+            var response = await _http.PostAsync("/v1/embeddings", content, ct);
 
             if (!response.IsSuccessStatusCode)
             {
