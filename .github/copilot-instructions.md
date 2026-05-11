@@ -10,14 +10,20 @@ docker compose ps
 # Build the solution
 dotnet build mtg-forge-ai.sln
 
-# Current test command
+# Run the full test suite
 dotnet test mtg-forge-ai.sln
+
+# Run a single test class
+dotnet test MtgForgeAi.Tests --filter "FullyQualifiedName~CardIngestionServiceTests"
+
+# Run a single test method
+dotnet test MtgForgeAi.Tests --filter "FullyQualifiedName~CardIngestionServiceTests.StablePointId_SameInput_ReturnsSameId"
 
 # Run the API locally
 dotnet run --project MtgForgeAi
 ```
 
-There is currently no separate test project in the solution, so there is no meaningful single-test command yet. There is also no dedicated lint command or formatter configuration checked into the repo.
+There is no dedicated lint command or formatter configuration checked into the repo.
 
 Useful runtime checks and data-loading commands from the repo docs:
 
@@ -77,3 +83,9 @@ Format support is cross-cutting. `DeckRequest.Format` is not just validation inp
 - `DeckGenerationService.ParseDeckResponse` is intentionally defensive: it removes markdown fences, extracts the first JSON object if the model adds text around it, and falls back to the raw LLM response as `Reasoning` if deserialization fails.
 - `CardIngestionService` builds deterministic Qdrant point IDs from Scryfall IDs with SHA-256 instead of `GetHashCode`, so vector IDs remain stable across runs.
 - Changing supported formats or legality payload fields requires re-ingestion because Qdrant payloads are produced during ingestion, not at query time.
+
+## Companion repositories
+
+- **forge-app** (`../forge-app`) — the primary user-facing app. When configured with `LlmProvider = Rag`, it proxies deck generation to this service via `RagPipelineService`.
+- **forge-observability** (`../forge-observability`) — the standalone Grafana / Prometheus / Loki / Tempo / Alloy stack. This repo's `docker-compose.yml` embeds a lighter version of that stack for local development; use the observability repo for Railway or full-stack deployments.
+- See `LOCAL-LLM-SETUP.md` for the local Ollama + Railway topology and `TOGETHER-AI-SETUP.md` for the OpenAI-compatible Together.ai configuration.
