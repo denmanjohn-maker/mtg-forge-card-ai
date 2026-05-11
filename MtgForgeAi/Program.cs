@@ -146,8 +146,19 @@ else
     builder.Services.AddScoped<ILlmService, OllamaLlmService>();
 }
 
-// Ollama embeddings (always Ollama — small model, fast on CPU)
-builder.Services.AddHttpClient<OllamaEmbedService>();
+// Embed service — config-driven: follows LLM:Provider setting
+// When "openai" (Together.ai), embeddings are generated via /v1/embeddings.
+// When "ollama" (local dev), embeddings are generated via Ollama /api/embed.
+if (llmProvider == "openai")
+{
+    builder.Services.AddHttpClient<OpenAiEmbedService>();
+    builder.Services.AddScoped<IEmbedService, OpenAiEmbedService>();
+}
+else
+{
+    builder.Services.AddHttpClient<OllamaEmbedService>();
+    builder.Services.AddScoped<IEmbedService, OllamaEmbedService>();
+}
 
 // Scryfall — HttpClient for card ingestion
 builder.Services.AddHttpClient("Scryfall", client =>
@@ -158,7 +169,6 @@ builder.Services.AddHttpClient("Scryfall", client =>
 });
 
 // Application services
-builder.Services.AddScoped<OllamaEmbedService>();
 builder.Services.AddScoped<CardSearchService>();
 builder.Services.AddScoped<DeckGenerationService>();
 builder.Services.AddScoped<CardIngestionService>();
