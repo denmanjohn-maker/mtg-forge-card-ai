@@ -287,27 +287,41 @@ public class CardIngestionService
 
     private async Task EnsureQdrantCollectionAsync(CancellationToken ct)
     {
+        var testVector = await _embedder.EmbedAsync("test card", ct);
+        var requiredDim = (ulong)testVector.Length;
+
         try
         {
-            await _qdrant.GetCollectionInfoAsync(QdrantCollection, ct);
-            _logger.LogInformation("Qdrant collection '{Collection}' exists, upserting...", QdrantCollection);
+            var info = await _qdrant.GetCollectionInfoAsync(QdrantCollection, ct);
+            var existingDim = info.Config?.Params?.VectorsConfig?.Params?.Size ?? 0;
+
+            if (existingDim == requiredDim)
+            {
+                _logger.LogInformation(
+                    "Qdrant collection '{Collection}' exists (dim={Dim}), upserting...",
+                    QdrantCollection, existingDim);
+                return;
+            }
+
+            // Dimension mismatch — delete and recreate with the current model's dimensions
+            _logger.LogWarning(
+                "Qdrant collection '{Collection}' has dim={Existing} but embed model requires dim={Required}. Deleting and recreating...",
+                QdrantCollection, existingDim, requiredDim);
+            await _qdrant.DeleteCollectionAsync(QdrantCollection, cancellationToken: ct);
         }
-        catch
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // Collection doesn't exist — create it
-            // Get vector dimension from a test embedding
-            var testVector = await _embedder.EmbedAsync("test card", ct);
-            var vectorSize = (ulong)testVector.Length;
-
-            _logger.LogInformation(
-                "Creating Qdrant collection '{Collection}' (dim={Dim})...",
-                QdrantCollection, vectorSize);
-
-            await _qdrant.CreateCollectionAsync(
-                QdrantCollection,
-                new VectorParams { Size = vectorSize, Distance = Distance.Cosine },
-                cancellationToken: ct);
+            // Collection doesn't exist — fall through to create
         }
+
+        _logger.LogInformation(
+            "Creating Qdrant collection '{Collection}' (dim={Dim})...",
+            QdrantCollection, requiredDim);
+
+        await _qdrant.CreateCollectionAsync(
+            QdrantCollection,
+            new VectorParams { Size = requiredDim, Distance = Distance.Cosine },
+            cancellationToken: ct);
     }
 
     internal static string BuildCardText(MtgCard card)

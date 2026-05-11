@@ -17,7 +17,7 @@ namespace MtgForgeAi.Services;
 /// same dimensions.
 ///
 /// Current default:
-///   - LLM:EmbedModel: BAAI/bge-base-en-v1.5 (768-dim)
+///   - LLM:EmbedModel: togethercomputer/m2-bert-80M-8k-retrieval (768-dim)
 /// </summary>
 public class OpenAiEmbedService : IEmbedService
 {
@@ -31,7 +31,7 @@ public class OpenAiEmbedService : IEmbedService
         ILogger<OpenAiEmbedService> logger)
     {
         _http = http;
-        _model = config["LLM:EmbedModel"] ?? "BAAI/bge-base-en-v1.5";
+        _model = config["LLM:EmbedModel"] ?? "togethercomputer/m2-bert-80M-8k-retrieval";
         _logger = logger;
 
         var baseUrl = config["LLM:BaseUrl"] ?? "https://api.together.xyz";
