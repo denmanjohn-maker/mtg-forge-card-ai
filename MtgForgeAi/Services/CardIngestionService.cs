@@ -18,19 +18,19 @@ namespace MtgForgeAi.Services;
 ///   1. Fetch Scryfall bulk-data index → get oracle_cards download URI
 ///   2. Stream-download and deserialize all oracle cards
 ///   3. Upsert cards into MongoDB (via MongoService)
-///   4. Embed card text via Ollama and upsert vectors into Qdrant
+///   4. Embed card text via IEmbedService and upsert vectors into Qdrant
 /// </summary>
 public class CardIngestionService
 {
     private readonly MongoService _mongo;
     private readonly QdrantClient _qdrant;
-    private readonly OllamaEmbedService _embedder;
+    private readonly IEmbedService _embedder;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IngestionStatusService _status;
     private readonly ILogger<CardIngestionService> _logger;
 
     private const string QdrantCollection = "mtg_cards";
-    private const int BatchSize = 50; // Smaller batch for embedding via Ollama (slower than local model)
+    private const int BatchSize = 50; // Batch size for embedding requests
 
     private static readonly string[] SupportedFormats =
         ["commander", "standard", "modern", "legacy", "pioneer", "pauper", "vintage"];
@@ -38,7 +38,7 @@ public class CardIngestionService
     public CardIngestionService(
         MongoService mongo,
         QdrantClient qdrant,
-        OllamaEmbedService embedder,
+        IEmbedService embedder,
         IHttpClientFactory httpClientFactory,
         IngestionStatusService status,
         ILogger<CardIngestionService> logger)

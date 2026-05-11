@@ -21,7 +21,7 @@ namespace MtgForgeAi.Services;
 ///   - Admin API ingestion: Ollama all-minilm (384-dim)
 ///   - This service (search): Ollama all-minilm (384-dim)
 /// </summary>
-public class OllamaEmbedService
+public class OllamaEmbedService : IEmbedService
 {
     private readonly HttpClient _http;
     private readonly string _model;
