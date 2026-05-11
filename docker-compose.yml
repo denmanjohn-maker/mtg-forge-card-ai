@@ -54,12 +54,17 @@ services:
       # On Railway set OTEL__Endpoint=http://alloy.railway.internal:4317 so
       # telemetry flows to the shared forge-observability Alloy collector.
       - OTEL__Endpoint=http://tempo:4317
+      # Loki — structured logs forwarded via Serilog (local dev).
+      # On Railway set Loki__Url=http://loki.railway.internal:3100
+      - Loki__Url=http://loki:3100
     depends_on:
       mongodb:
         condition: service_healthy
       qdrant:
         condition: service_started
       tempo:
+        condition: service_started
+      loki:
         condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -79,6 +84,17 @@ services:
       - '--storage.tsdb.retention.time=7d'
     depends_on:
       - mtgforge
+
+  # ─── Grafana Loki (log aggregation) ──────────────────────────────────────────
+  loki:
+    image: grafana/loki:latest
+    container_name: mtg_loki
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
 
   # ─── Grafana Tempo (distributed tracing) ─────────────────────────────────────
   tempo:
@@ -107,18 +123,20 @@ services:
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
       - GF_FEATURE_TOGGLES_ENABLE=traceqlEditor traceToMetrics
-      # Set GF_LOKI_URL to your Loki endpoint if using Grafana Cloud or a remote Loki
-      - GF_LOKI_URL=${GF_LOKI_URL:-http://localhost:3100}
+      # On Railway override GF_LOKI_URL to point at the forge-observability Loki
+      - GF_LOKI_URL=${GF_LOKI_URL:-http://loki:3100}
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana_data:/var/lib/grafana
     depends_on:
       - prometheus
       - tempo
+      - loki
 
 volumes:
   mongodb_data:
   qdrant_data:
   prometheus_data:
+  loki_data:
   tempo_data:
   grafana_data:
