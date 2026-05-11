@@ -17,7 +17,7 @@ namespace MtgForgeAi.Services;
 /// same dimensions.
 ///
 /// Current default:
-///   - LLM:EmbedModel: intfloat/multilingual-e5-large-instruct (1024-dim, Together.ai serverless)
+///   - LLM:EmbedModel: BAAI/bge-m3 (1024-dim, DeepInfra serverless)
 /// </summary>
 public class OpenAiEmbedService : IEmbedService
 {
@@ -31,7 +31,7 @@ public class OpenAiEmbedService : IEmbedService
         ILogger<OpenAiEmbedService> logger)
     {
         _http = http;
-        _model = config["LLM:EmbedModel"] ?? "intfloat/multilingual-e5-large-instruct";
+        _model = config["LLM:EmbedModel"] ?? "BAAI/bge-m3";
         _logger = logger;
 
         var baseUrl = config["LLM:BaseUrl"] ?? "https://api.together.xyz";
