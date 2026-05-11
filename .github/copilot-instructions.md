@@ -47,19 +47,19 @@ python ingest_cards.py --qdrant-only
 
 ## High-level architecture
 
-The repo is an API-only local RAG system for MTG deck generation. `MtgForgeAi` is the only .NET project in the solution; it exposes controllers for deck generation, semantic card search, ingestion, health, and saved-deck CRUD. The API depends on MongoDB for cards and saved decks, Qdrant for vector search, and a configurable LLM backend for chat completions (Ollama for local dev, Together.ai / OpenAI-compatible for production).
+The repo is an API-only local RAG system for MTG deck generation. `MtgForgeAi` is the only .NET project in the solution; it exposes controllers for deck generation, semantic card search, ingestion, health, and saved-deck CRUD. The API depends on MongoDB for cards and saved decks, Qdrant for vector search, and a configurable LLM backend for chat completions (Ollama for local dev, DeepInfra / OpenAI-compatible for production).
 
 The LLM layer is provider-agnostic:
 
 - `ILlmService` defines the chat/stream/health interface.
 - `OllamaLlmService` implements it for local Ollama instances (`/api/chat`).
-- `OpenAiLlmService` implements it for Together.ai and any OpenAI-compatible API (`/v1/chat/completions`).
+- `OpenAiLlmService` implements it for DeepInfra and any OpenAI-compatible API (`/v1/chat/completions`).
 - The provider is selected at startup via `LLM:Provider` config (`"ollama"` or `"openai"`).
-- Embeddings always run through `OllamaEmbedService` (tiny model, fast on CPU).
+- Embeddings use `IEmbedService` — `OpenAiEmbedService` (DeepInfra `BAAI/bge-m3`, 1024-dim) in production; `OllamaEmbedService` (`all-minilm`, 384-dim) for local dev.
 
 Two ingestion paths feed the same runtime data model:
 
-- `POST /api/admin/ingest` uses `CardIngestionService` to download Scryfall data, upsert cards into MongoDB, embed legal cards through Ollama, and upsert vectors into Qdrant.
+- `POST /api/admin/ingest` uses `CardIngestionService` to download Scryfall data, upsert cards into MongoDB, embed legal cards through `IEmbedService` (DeepInfra in production, Ollama locally), and upsert vectors into Qdrant.
 - `scripts/ingest_cards.py` is the local-development ingestion script and must stay aligned with the .NET embedding/search setup.
 
 The main runtime path is:
@@ -74,11 +74,11 @@ Format support is cross-cutting. `DeckRequest.Format` is not just validation inp
 ## Key conventions
 
 - Ollama runs natively on macOS, not in Docker. When the API runs in Docker, it reaches Ollama via `host.docker.internal:11434`.
-- Embedding dimensions must stay aligned across ingestion and query-time search. Python ingestion uses `all-MiniLM-L6-v2`, while the .NET services use Ollama `all-minilm`; both are 384-dimensional. If the embedding model changes, re-ingest Qdrant data.
+- Embedding dimensions must stay aligned across ingestion and query-time search. Production uses DeepInfra `BAAI/bge-m3` (1024-dim); local Ollama uses `all-minilm` (384-dim). If the embedding model or provider changes, re-ingest Qdrant data.
 - The Qdrant collection stores all supported formats in one place. Filtering happens by payload fields like `legality_commander`, `legality_standard`, `legality_modern`, `legality_legacy`, `legality_pioneer`, `legality_pauper`, and `legality_vintage`.
 - Color filtering is exclusion-based, not inclusion-based: `CardSearchService` builds `MustNot` conditions for every color outside the requested identity so colorless, mono-color, and exact-match cards remain eligible.
-- Service lifetimes matter: `MongoService` and `QdrantClient` are singletons; the active `ILlmService` implementation, `OllamaEmbedService`, `CardSearchService`, `DeckGenerationService`, and `CardIngestionService` are scoped.
-- The active `ILlmService` implementation and `OllamaEmbedService` each get their own typed `HttpClient`; the named `"Scryfall"` client is reserved for ingestion and uses a 5-minute timeout.
+- Service lifetimes matter: `MongoService` and `QdrantClient` are singletons; the active `ILlmService` implementation, `IEmbedService` implementation, `CardSearchService`, `DeckGenerationService`, and `CardIngestionService` are scoped.
+- The active `ILlmService` implementation and active `IEmbedService` implementation each get their own typed `HttpClient`; the named `"Scryfall"` client is reserved for ingestion and uses a 5-minute timeout.
 - Request/response API shapes use C# `record` types. MongoDB documents use mutable `class` types with BSON attributes. The LLM-only deserialization models are private nested classes inside `DeckGenerationService`.
 - `DeckGenerationService.ParseDeckResponse` is intentionally defensive: it removes markdown fences, extracts the first JSON object if the model adds text around it, and falls back to the raw LLM response as `Reasoning` if deserialization fails.
 - `CardIngestionService` builds deterministic Qdrant point IDs from Scryfall IDs with SHA-256 instead of `GetHashCode`, so vector IDs remain stable across runs.
@@ -88,4 +88,4 @@ Format support is cross-cutting. `DeckRequest.Format` is not just validation inp
 
 - **forge-app** (`../forge-app`) — the primary user-facing app. When configured with `LlmProvider = Rag`, it proxies deck generation to this service via `RagPipelineService`.
 - **forge-observability** (`../forge-observability`) — the standalone Grafana / Prometheus / Loki / Tempo / Alloy stack. This repo's `docker-compose.yml` embeds a lighter version of that stack for local development; use the observability repo for Railway or full-stack deployments.
-- See `LOCAL-LLM-SETUP.md` for the local Ollama + Railway topology and `TOGETHER-AI-SETUP.md` for the OpenAI-compatible Together.ai configuration.
+- See `LOCAL-LLM-SETUP.md` for the local Ollama + Railway topology and `DEEPINFRA-SETUP.md` for the OpenAI-compatible DeepInfra configuration.

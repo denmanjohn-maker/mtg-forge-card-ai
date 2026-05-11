@@ -1,6 +1,6 @@
 # MTG Forge AI
 
-> API-only RAG system for MTG deck generation. Uses Together.ai for LLM chat completions and Ollama for embeddings only. MongoDB for card data + saved decks, Qdrant for vector search. Deployed on Railway.app — accepts requests from the MtgDeckForge frontend app — no UI included.
+> API-only RAG system for MTG deck generation. Uses DeepInfra for LLM chat completions and embeddings. MongoDB for card data + saved decks, Qdrant for vector search. Deployed on Railway.app — accepts requests from the MtgDeckForge frontend app — no UI included.
 
 ---
 
@@ -84,20 +84,21 @@ ollama pull all-minilm       # embedding model (always needed, even with Option 
 ollama list                  # verify
 ```
 
-#### Option B: Together.ai / OpenAI-compatible (production — current Railway setup)
+#### Option B: DeepInfra / OpenAI-compatible (production — current Railway setup)
 
 Set env vars or update `appsettings.json`:
 
 ```bash
 LLM__Provider=openai
-LLM__BaseUrl=https://api.together.xyz
-LLM__Model=meta-llama/Llama-3.3-70B-Instruct-Turbo
+LLM__BaseUrl=https://api.deepinfra.com/v1/openai
+LLM__Model=meta-llama/Llama-3.3-70B-Instruct
+LLM__EmbedModel=BAAI/bge-m3
 LLM__ApiKey=your-api-key-here
 ```
 
-Works with any OpenAI-compatible API (Together.ai, OpenRouter, Fireworks, etc.).
+Works with any OpenAI-compatible API (DeepInfra, Together.ai, OpenRouter, Fireworks, etc.).
 
-> **Important:** Embeddings always use Ollama (`all-minilm`), even when chat is hosted externally. In production (Railway), Ollama runs as a Railway service for embeddings — the model is tiny (~23MB) and fast on CPU.
+> **Important:** When `LLM:Provider` is set to `openai`, both LLM chat **and** card embeddings use the configured provider (default: DeepInfra). Ollama is not required on Railway. For local dev, switch to `LLM__Provider=ollama` to use local Ollama for both LLM and embeddings.
 
 ### 3. Run the API
 
@@ -172,8 +173,9 @@ All config lives in `MtgForgeAi/appsettings.json`. Override via env vars using `
   },
   "LLM": {
     "Provider": "ollama",        // "ollama" or "openai"
-    "BaseUrl": "https://api.together.xyz",  // only used when Provider = "openai"
-    "Model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    "BaseUrl": "https://api.deepinfra.com/v1/openai",  // only used when Provider = "openai"
+    "Model": "meta-llama/Llama-3.3-70B-Instruct",
+    "EmbedModel": "BAAI/bge-m3",               // only used when Provider = "openai"
     "ApiKey": ""                 // required when Provider = "openai"
   }
 }
@@ -181,7 +183,7 @@ All config lives in `MtgForgeAi/appsettings.json`. Override via env vars using `
 
 ### Railway deployment env vars
 
-The production and staging environments on Railway.app use Together.ai for LLM chat (Ollama was tried for LLM chat in Railway but was too slow without a GPU — deck generation took over 5 minutes). Ollama remains in Railway solely for the embedding model, which runs fine on CPU.
+The production and staging environments on Railway.app use DeepInfra for LLM chat and embeddings (Ollama was tried for LLM chat in Railway but was too slow without a GPU — deck generation took over 5 minutes). DeepInfra handles both deck generation and card embeddings, so no Ollama service is needed in Railway.
 
 **Production** (main branch) and **Staging** (staging branch) both use:
 
@@ -190,12 +192,11 @@ MongoDB__ConnectionString=mongodb://user:pass@mongodb.railway.internal:27017
 MongoDB__DatabaseName=mtgforge
 Qdrant__Host=qdrant.railway.internal
 Qdrant__Port=6334
-Ollama__BaseUrl=http://ollama.railway.internal:11434
-Ollama__EmbedModel=all-minilm
 LLM__Provider=openai
-LLM__BaseUrl=https://api.together.xyz
-LLM__Model=meta-llama/Llama-3.3-70B-Instruct-Turbo
-LLM__ApiKey=your-key
+LLM__BaseUrl=https://api.deepinfra.com/v1/openai
+LLM__Model=meta-llama/Llama-3.3-70B-Instruct
+LLM__EmbedModel=BAAI/bge-m3
+LLM__ApiKey=your-deepinfra-key
 Loki__Url=https://loki.up.railway.app
 Loki__Username=your-loki-username
 Loki__Password=your-loki-password
@@ -258,7 +259,7 @@ mtg-forge-card-ai/
 │   ├── Services/
 │   │   ├── ILlmService.cs         # LLM provider interface (ChatAsync, StreamAsync, IsHealthyAsync)
 │   │   ├── OllamaService.cs       # OllamaLlmService — local Ollama implementation
-│   │   ├── OpenAiLlmService.cs    # Together.ai / OpenAI-compatible implementation
+│   │   ├── OpenAiLlmService.cs    # DeepInfra / OpenAI-compatible implementation
 │   │   ├── OllamaEmbedService.cs  # Embedding service (always Ollama, all-minilm 384-dim)
 │   │   ├── DeckGenerationService.cs # Orchestrator: candidates → prompt → LLM → parse → save
 │   │   ├── CardSearchService.cs   # Qdrant semantic search with format/color/budget filters
@@ -339,9 +340,9 @@ python compute_meta_signals.py --dry-run --out ./data/meta.json
 
 The script writes to the `meta_signals` and `meta_signal_stats` MongoDB collections. The .NET API picks up the new data automatically on next generation (5-minute cache TTL). Re-run periodically — weekly is a reasonable cadence.
 
-Or to host the fine-tuned model on Together.ai:
-1. Upload the model to Together.ai
-2. Set `LLM__Provider=openai`, `LLM__Model=your-finetuned-model-id`
+Or to host a fine-tuned model on DeepInfra or another provider:
+1. Upload the model to your chosen provider
+2. Set `LLM__Provider=openai`, `LLM__Model=your-finetuned-model-id`, `LLM__BaseUrl=your-provider-url`
 
 ---
 
@@ -355,5 +356,5 @@ Or to host the fine-tuned model on Together.ai:
 | MongoDB auth error | Check `MongoDB__ConnectionString` matches configured credentials |
 | Search returns no results | Embedding model mismatch — delete collection and re-ingest (see above) |
 | Scryfall ingestion 400 error | Scryfall requires `User-Agent` + `Accept` headers (already configured) |
-| Deck generation timeout | Ensure `LLM__Provider=openai` with Together.ai — Ollama in Railway has no GPU and will be slow |
+| Deck generation timeout | Ensure `LLM__Provider=openai` with DeepInfra or another hosted provider — Ollama in Railway has no GPU and will be slow |
 | Qdrant collection not found | Collection name is `mtg_cards` (not `cards`). Run ingestion first. |

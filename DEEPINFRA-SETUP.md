@@ -1,10 +1,10 @@
-# Together.ai Setup Guide — MTG Forge AI
+# DeepInfra Setup Guide — MTG Forge AI
 
-This guide walks you through configuring MTG Forge AI to use Together.ai as its LLM provider instead of a local Ollama model. Together.ai gives you access to large hosted models (70B+) with GPU-accelerated inference at very low cost — ideal for this proof of concept.
+This guide walks you through configuring MTG Forge AI to use DeepInfra as its LLM and embedding provider instead of a local Ollama model. DeepInfra gives you access to a wide catalog of open-source models (70B+) with GPU-accelerated inference at very low cost (~$0.01/1M tokens for embeddings) — ideal for this project.
 
-> **Note on embeddings:** When `LLM:Provider` is set to `openai`, both deck generation **and** card embeddings run through Together.ai. Ollama is no longer required on Railway. For local dev, you can still switch to Ollama by setting `LLM__Provider=ollama`, but note that this changes the active provider for **both** deck generation and embeddings. In other words, that setting does **not** keep Together.ai for chat while using Ollama only for embeddings.
+> **Note on embeddings:** When `LLM:Provider` is set to `openai`, both deck generation **and** card embeddings run through DeepInfra. Ollama is no longer required on Railway. For local dev, you can still switch to Ollama by setting `LLM__Provider=ollama`, but note that this changes the active provider for **both** deck generation and embeddings.
 >
-> **Important:** If you are migrating from the Ollama embed provider to Together.ai's embed provider, you must **delete the Qdrant `mtg_cards` collection and re-run ingestion**. The embedding models produce different vector dimensions (384-dim `all-minilm` vs 768-dim `BAAI/bge-base-en-v1.5`), so the stored vectors are incompatible.
+> **Important:** If you are migrating from the Ollama embed provider to DeepInfra's embed provider, you must **delete the Qdrant `mtg_cards` collection and re-run ingestion**. The embedding models produce different vector dimensions (384-dim `all-minilm` vs 1024-dim `BAAI/bge-m3`), so the stored vectors are incompatible.
 
 ---
 
@@ -15,18 +15,17 @@ This guide walks you through configuring MTG Forge AI to use Together.ai as its 
 | Docker Desktop | MongoDB + Qdrant infrastructure (local dev) | https://www.docker.com/products/docker-desktop/ |
 | .NET 10 SDK | Build and run the API (local dev) | https://dotnet.microsoft.com/download/dotnet/10 |
 | Ollama | Embedding model (local dev only — not needed in Railway) | https://ollama.com/download |
-| Together.ai account | Hosted LLM inference and embeddings | https://api.together.ai |
+| DeepInfra account | Hosted LLM inference and embeddings | https://deepinfra.com |
 
 ---
 
-## Step 1 — Create a Together.ai Account and Get an API Key
+## Step 1 — Create a DeepInfra Account and Get an API Key
 
-1. Go to [https://api.together.ai](https://api.together.ai) and sign up for a free account.
-2. After signing in, navigate to **Settings → API Keys**.
-3. Click **Create API Key**, give it a name (e.g. `mtg-forge-dev`), and click **Create**.
-4. Copy the key immediately — it is only shown once.
+1. Go to [https://deepinfra.com](https://deepinfra.com) and sign up for a free account.
+2. After signing in, navigate to **API keys** in the dashboard.
+3. Click **Create new API key**, give it a name (e.g. `mtg-forge-dev`), and copy the key immediately.
 
-> Together.ai gives new accounts free credits to get started. For this project, deck generation costs roughly **$0.002–$0.003 per request** using the default `meta-llama/Llama-3.3-70B-Instruct-Turbo` model.
+> DeepInfra gives new accounts free credits to get started. For this project, deck generation costs roughly **$0.001–$0.003 per request** using the default `meta-llama/Llama-3.3-70B-Instruct` model.
 
 ---
 
@@ -35,19 +34,19 @@ This guide walks you through configuring MTG Forge AI to use Together.ai as its 
 The default model is already configured in `appsettings.json`:
 
 ```
-meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8
+meta-llama/Llama-3.3-70B-Instruct
 ```
 
-This model gives GPT-4o class JSON-following behavior at 3× lower cost than the previous default. If you want to try a different model, browse the [Together.ai model list](https://api.together.ai/models) and filter by **Chat** capability. Some good alternatives:
+If you want to try a different model, browse the [DeepInfra model catalog](https://deepinfra.com/models) and filter by **Text Generation**. Some good alternatives:
 
 | Model ID | Input $/1M | Notes |
 |---|---|---|
-| `meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8` | $0.27 | ✅ Default — best quality/cost; 1M context; JSON mode |
-| `meta-llama/Llama-3.3-70B-Instruct-Turbo` | $0.88 | Previous default — still solid, now superseded by Maverick |
-| `Qwen/Qwen3.5-9B` | $0.10 | Budget option for testing |
-| `deepseek-ai/DeepSeek-V4-Pro` | $2.10 | Only needed for very long context workloads |
+| `meta-llama/Llama-3.3-70B-Instruct` | $0.23 | ✅ Default — strong JSON-following, large context |
+| `meta-llama/Meta-Llama-3.1-70B-Instruct` | $0.23 | Slightly older Llama 3.1 variant |
+| `Qwen/Qwen2.5-72B-Instruct` | $0.23 | Good alternative with strong instruction-following |
+| `mistralai/Mistral-7B-Instruct-v0.3` | $0.06 | Budget option for testing |
 
-Copy the full model ID from the Together.ai UI — you will need it in Step 3.
+Copy the full model ID from the DeepInfra catalog — you will need it in Step 3.
 
 ---
 
@@ -61,9 +60,9 @@ Open `MtgForgeAi/appsettings.json` and update the `LLM` block:
 {
   "LLM": {
     "Provider": "openai",
-    "BaseUrl": "https://api.together.xyz",
-    "Model": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
-    "EmbedModel": "BAAI/bge-base-en-v1.5",
+    "BaseUrl": "https://api.deepinfra.com/v1/openai",
+    "Model": "meta-llama/Llama-3.3-70B-Instruct",
+    "EmbedModel": "BAAI/bge-m3",
     "ApiKey": "your-api-key-here"
   }
 }
@@ -77,9 +76,9 @@ Environment variables override `appsettings.json` and use `__` for nested keys:
 
 ```bash
 export LLM__Provider=openai
-export LLM__BaseUrl=https://api.together.xyz
-export LLM__Model=meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8
-export LLM__EmbedModel=BAAI/bge-base-en-v1.5
+export LLM__BaseUrl=https://api.deepinfra.com/v1/openai
+export LLM__Model=meta-llama/Llama-3.3-70B-Instruct
+export LLM__EmbedModel=BAAI/bge-m3
 export LLM__ApiKey=your-api-key-here
 ```
 
@@ -93,9 +92,9 @@ If you're running the API via `docker compose up mtgforge`, add the variables to
 mtgforge:
   environment:
     - LLM__Provider=openai
-    - LLM__BaseUrl=https://api.together.xyz
-    - LLM__Model=meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8
-    - LLM__EmbedModel=BAAI/bge-base-en-v1.5
+    - LLM__BaseUrl=https://api.deepinfra.com/v1/openai
+    - LLM__Model=meta-llama/Llama-3.3-70B-Instruct
+    - LLM__EmbedModel=BAAI/bge-m3
     - LLM__ApiKey=your-api-key-here
 ```
 
@@ -105,9 +104,9 @@ mtgforge:
 
 ## Step 4 — Local Dev Only: Pull the Ollama Embedding Model
 
-> **Skip this step for Railway deployments.** When `LLM__Provider=openai`, embeddings run through Together.ai and Ollama is not required.
+> **Skip this step for Railway deployments.** When `LLM__Provider=openai`, embeddings run through DeepInfra and Ollama is not required.
 
-For local development only, if you want to run with `LLM__Provider=ollama` instead of Together.ai, pull the embedding model:
+For local development only, if you want to run with `LLM__Provider=ollama` instead of DeepInfra, pull the embedding model:
 
 ```bash
 # Embedding model — small (~23 MB), fast on CPU
@@ -181,7 +180,7 @@ Expected response:
 If `llm` is `false`:
 - Confirm `LLM__Provider` is set to `openai`
 - Confirm `LLM__ApiKey` is set and correct
-- Check the API logs for the error message — Together.ai returns a descriptive body on auth failure
+- Check the API logs for the error message — DeepInfra returns a descriptive body on auth failure
 
 If `mongodb` or `qdrant` is `false`:
 - Run `docker compose ps` and confirm both containers are running
@@ -205,9 +204,9 @@ curl -X POST http://localhost:5000/api/admin/ingest \
   -d '{}'
 ```
 
-Ingestion embeds cards using the configured `IEmbedService`. When `LLM__Provider=openai`, cards are embedded via Together.ai's `/v1/embeddings` endpoint using the `LLM__EmbedModel` model (default: `BAAI/bge-base-en-v1.5`).
+Ingestion embeds cards using the configured `IEmbedService`. When `LLM__Provider=openai`, cards are embedded via DeepInfra's `/embeddings` endpoint using the `LLM__EmbedModel` model (default: `BAAI/bge-m3`, 1024-dim).
 
-> **Migrating from Ollama embeddings?** If you previously ingested cards with Ollama (`all-minilm`, 384-dim), you **must** delete the Qdrant `mtg_cards` collection before re-ingesting. The Together.ai embed model produces 768-dim vectors which are incompatible with the existing 384-dim collection.
+> **Migrating from Ollama embeddings?** If you previously ingested cards with Ollama (`all-minilm`, 384-dim), you **must** delete the Qdrant `mtg_cards` collection before re-ingesting. The DeepInfra `BAAI/bge-m3` model produces 1024-dim vectors which are incompatible with the existing 384-dim collection.
 >
 > ```bash
 > # Delete the existing collection via Qdrant HTTP API
@@ -235,7 +234,7 @@ curl -X POST http://localhost:5000/api/decks/generate \
   }'
 ```
 
-A successful response includes `sections` (grouped card lists), `estimatedCost`, and `reasoning` from the LLM. Generation typically takes **3–10 seconds** with Together.ai (versus up to several minutes on CPU-only Ollama).
+A successful response includes `sections` (grouped card lists), `estimatedCost`, and `reasoning` from the LLM. Generation typically takes **3–10 seconds** with DeepInfra (versus up to several minutes on CPU-only Ollama).
 
 ---
 
@@ -259,7 +258,7 @@ Or in `appsettings.json`:
 
 The `LLM__BaseUrl`, `LLM__Model`, `LLM__EmbedModel`, and `LLM__ApiKey` values are ignored when `Provider` is `ollama`. The Ollama LLM model is controlled by `Ollama__Model` and the embed model by `Ollama__EmbedModel`.
 
-> **Note:** Do not use Ollama as the LLM provider in Railway. Without GPU access, deck generation takes over 5 minutes. Together.ai is the correct choice for Railway deployments.
+> **Note:** Do not use Ollama as the LLM provider in Railway. Without GPU access, deck generation takes over 5 minutes. DeepInfra is the correct choice for Railway deployments.
 
 ---
 
@@ -267,11 +266,12 @@ The `LLM__BaseUrl`, `LLM__Model`, `LLM__EmbedModel`, and `LLM__ApiKey` values ar
 
 | Model | Input (per 1M tokens) | Output (per 1M tokens) | Cost per deck |
 |---|---|---|---|
-| `Llama-4-Maverick-17B-128E-Instruct-FP8` | ~$0.27 | ~$0.85 | ~$0.0035 ✅ Default |
-| `Llama-3.3-70B-Instruct-Turbo` | ~$0.88 | ~$0.88 | ~$0.006 |
-| `Qwen3.5-9B` | ~$0.10 | ~$0.15 | ~$0.001 |
+| `meta-llama/Llama-3.3-70B-Instruct` | ~$0.23 | ~$0.40 | ~$0.002 ✅ Default |
+| `Qwen/Qwen2.5-72B-Instruct` | ~$0.23 | ~$0.40 | ~$0.002 |
+| `mistralai/Mistral-7B-Instruct-v0.3` | ~$0.06 | ~$0.06 | ~$0.001 |
+| `BAAI/bge-m3` (embed) | ~$0.01 | — | ~$0.0001/ingest |
 
-Prices are approximate and subject to Together.ai's current rates. Check [https://api.together.ai/models](https://api.together.ai/models) for up-to-date pricing.
+Prices are approximate and subject to DeepInfra's current rates. Check [https://deepinfra.com/models](https://deepinfra.com/models) for up-to-date pricing.
 
 ---
 
@@ -280,9 +280,9 @@ Prices are approximate and subject to Together.ai's current rates. Check [https:
 | Problem | Fix |
 |---|---|
 | `LLM:ApiKey is required` startup error | `LLM__ApiKey` env var is missing or empty |
-| `LLM API error 401` | API key is invalid or expired — regenerate in Together.ai dashboard |
-| `LLM API error 429` | Rate limited — reduce request frequency or upgrade Together.ai plan |
-| `LLM API error 404` on model | Model ID is incorrect — copy the exact ID from the Together.ai model list |
+| `LLM API error 401` | API key is invalid or expired — regenerate in DeepInfra dashboard |
+| `LLM API error 429` | Rate limited — reduce request frequency or add credits to your DeepInfra account |
+| `LLM API error 404` on model | Model ID is incorrect — copy the exact ID from the DeepInfra model catalog |
 | `llm: false` on health check | API key is set but the `/v1/models` call failed — check firewall/network |
 | Embeddings failing (openai provider) | Check `LLM__ApiKey` is set; check API logs for the embed error body |
 | Embeddings failing (ollama provider) | Ollama is not running — `ollama serve` (local dev only) |

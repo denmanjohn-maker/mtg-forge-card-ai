@@ -4,14 +4,14 @@
 
 `mtg-forge-ai` is the deck generation backend for the MtgDeckForge frontend app. Both services are deployed on Railway.app. The backend runs a RAG pipeline that pre-filters cards in Qdrant by price **before** the LLM ever sees them, ensuring budget constraints are respected.
 
-> **Why Together.ai?** Ollama was initially run in Railway as the LLM for deck generation, but without GPU access the response times exceeded 5 minutes per deck. Together.ai provides GPU-accelerated inference with sub-10-second generation times.
+> **Why DeepInfra?** Ollama was initially run in Railway as the LLM for deck generation, but without GPU access the response times exceeded 5 minutes per deck. DeepInfra provides GPU-accelerated inference with sub-10-second generation times and the widest open-source model catalog (~$0.23/1M tokens).
 
 ### What's included in mtg-forge-ai
 
 - **Multi-format support**: `commander`, `standard`, `modern`, `legacy`, `pioneer`, `pauper`, `vintage` — format-aware prompts, Qdrant legality filters, and deck size rules
 - **Admin ingestion endpoint**: `POST /api/admin/ingest` — ingest cards from Scryfall without needing Python
 - **Color identity filtering**: Correctly excludes cards outside the requested color identity using `MustNot` filters
-- **Embedding model alignment**: `appsettings.json` uses `all-minilm` (384-dim) matching the Python ingestion script
+- **Embedding model alignment**: `appsettings.json` uses `BAAI/bge-m3` (1024-dim) via DeepInfra — if switching to local Ollama, use `all-minilm` (384-dim) and re-ingest Qdrant data
 - **API-only mode**: No frontend — accepts requests from the main MtgDeckForge app
 
 ---
@@ -23,7 +23,7 @@
 | **Production** | `main` | Live user-facing deployment |
 | **Staging** | `staging` | Pre-release testing — mirrors the other repo's staging branch |
 
-Both environments run the same service topology: .NET API + MongoDB + Qdrant + Ollama (embeddings only) + Together.ai (LLM chat).
+Both environments run the same service topology: .NET API + MongoDB + Qdrant + DeepInfra (LLM chat + embeddings).
 
 ---
 
@@ -36,22 +36,21 @@ Each environment deploys the following Railway services:
 | `.NET API` (this repo) | Deck generation, card search, ingestion | `mtgforgeai.railway.internal` |
 | `MongoDB` | Card catalog + saved decks | `mongodb.railway.internal:27017` |
 | `Qdrant` | Vector search | `qdrant.railway.internal:6334` |
-| `Ollama` | Embedding model only (`all-minilm`) | `ollama.railway.internal:11434` |
-| Together.ai | LLM chat completions (hosted, no Railway service) | `https://api.together.xyz` |
+| DeepInfra | LLM chat completions + embeddings (hosted, no Railway service) | `https://api.deepinfra.com/v1/openai` |
 
 ---
 
 ## Steps to Set Up (Local Development)
 
-### 1. Pull Ollama Models
+### 1. Pull Ollama Models (Local Dev Only)
 
-For local development, make sure the embedding model is downloaded (the LLM chat uses Together.ai, so no large local LLM is needed):
+For local development, if you prefer `LLM__Provider=ollama`, pull the models. For Railway deployments using DeepInfra, skip this step:
 
 ```bash
 # Embedding model for semantic card search (~23 MB)
 ollama pull all-minilm
 
-# Optional: chat model if you want to test with local Ollama instead of Together.ai
+# Optional: chat model if you want to test with local Ollama instead of DeepInfra
 ollama pull mistral:latest
 ```
 
@@ -158,7 +157,7 @@ MtgDeckForge.Api (Railway)
                   └─ GenerateDeckAsync  → mtg-forge-ai /api/decks/generate
 
 mtg-forge-ai (Railway)
-  ├─ POST /api/decks/generate      → DeckGenerationService → Qdrant + Together.ai
+  ├─ POST /api/decks/generate      → DeckGenerationService → Qdrant + DeepInfra
   ├─ POST /api/cards/search        → CardSearchService → Qdrant semantic search
   ├─ POST /api/admin/ingest        → CardIngestionService → Scryfall → MongoDB + Qdrant
   ├─ GET  /api/admin/ingest-status → IngestionStatusService (also at GET /api/admin/ingest)
@@ -171,6 +170,6 @@ mtg-forge-ai (Railway)
 
 | Topic | Details |
 |---|---|
-| Ollama in Railway (embeddings only) | Ollama runs as a Railway service but is used **only** for the `all-minilm` embedding model. LLM chat goes to Together.ai. |
+| Ollama in Railway | Not used in Railway. Ollama is only needed locally when `LLM__Provider=ollama`. In Railway, DeepInfra handles both LLM chat and embeddings. |
 | `SuggestBudgetReplacementsAsync` returns `[]` in Local mode | By design — Qdrant pre-filtering makes it unnecessary |
-| Embedding model alignment | Both Python ingestion and .NET API use 384-dim models (`all-MiniLM-L6-v2` / `all-minilm`). See README.md for details on changing models. |
+| Embedding model alignment | Production uses `BAAI/bge-m3` (1024-dim) via DeepInfra. Local Ollama uses `all-minilm` (384-dim). Switching embed providers requires re-ingesting Qdrant data. |
