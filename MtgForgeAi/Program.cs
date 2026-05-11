@@ -1,7 +1,6 @@
 using MtgForgeAi.Logging;
 using MtgForgeAi.Services;
 using MtgForgeAi.Telemetry;
-using OpenTelemetry.Exporter;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -26,7 +25,7 @@ builder.Host.UseSerilog((ctx, cfg) =>
        .Enrich.FromLogContext()
        .WriteTo.Console();
 
-    var lokiUrl = ctx.Configuration["Loki:Url"];
+    var lokiUrl = ctx.Configuration["LOKI_URI"];
     if (!string.IsNullOrWhiteSpace(lokiUrl))
     {
         // Railway (and other platforms) may supply the hostname without a
@@ -70,24 +69,10 @@ builder.Host.UseSerilog((ctx, cfg) =>
 
 // ─── OpenTelemetry ────────────────────────────────────────────────────────────
 
-var otlpEndpoint = builder.Configuration["OTEL:Endpoint"];
-var otlpProtocol = builder.Configuration["OTEL:Protocol"];
-var otlpHeaders  = builder.Configuration["OTEL:Headers"];
-
-// Determine OTLP export protocol.  Railway's collector (and most cloud OTLP
-// receivers) use HTTP/protobuf; gRPC is kept as the default so existing setups
-// are not broken.  Set OTEL__Protocol=http in Railway env vars to use HTTP.
-var resolvedOtlpProtocol = otlpProtocol?.Trim().ToLowerInvariant() == "http"
-    ? OtlpExportProtocol.HttpProtobuf
-    : OtlpExportProtocol.Grpc;
-
-void ConfigureOtlp(OtlpExporterOptions o)
-{
-    o.Endpoint = new Uri(otlpEndpoint!);
-    o.Protocol = resolvedOtlpProtocol;
-    if (!string.IsNullOrWhiteSpace(otlpHeaders))
-        o.Headers = otlpHeaders;
-}
+// The OTEL SDK reads OTEL_EXPORTER_OTLP_ENDPOINT / OTEL_EXPORTER_OTLP_PROTOCOL /
+// OTEL_EXPORTER_OTLP_HEADERS automatically when AddOtlpExporter() is called with
+// no arguments, so no manual endpoint wiring is needed here.
+var otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
 
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(r => r
@@ -111,7 +96,7 @@ builder.Services.AddOpenTelemetry()
          });
 
         if (!string.IsNullOrWhiteSpace(otlpEndpoint))
-            t.AddOtlpExporter(ConfigureOtlp);
+            t.AddOtlpExporter();
     })
     .WithMetrics(m =>
     {
@@ -122,7 +107,7 @@ builder.Services.AddOpenTelemetry()
          .AddPrometheusExporter();
 
         if (!string.IsNullOrWhiteSpace(otlpEndpoint))
-            m.AddOtlpExporter(ConfigureOtlp);
+            m.AddOtlpExporter();
     });
 
 // ─── Services ─────────────────────────────────────────────────────────────────
