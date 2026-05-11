@@ -2,7 +2,7 @@
 
 This guide walks you through configuring MTG Forge AI to use Together.ai as its LLM provider instead of a local Ollama model. Together.ai gives you access to large hosted models (70B+) with GPU-accelerated inference at very low cost — ideal for this proof of concept.
 
-> **Note on embeddings:** When `LLM:Provider` is set to `openai`, both deck generation **and** card embeddings run through Together.ai. Ollama is no longer required on Railway. For local dev, you can still use Ollama by setting `LLM__Provider=ollama`, which will use the local `all-minilm` model for embeddings.
+> **Note on embeddings:** When `LLM:Provider` is set to `openai`, both deck generation **and** card embeddings run through Together.ai. Ollama is no longer required on Railway. For local dev, you can still switch to Ollama by setting `LLM__Provider=ollama`, but note that this changes the active provider for **both** deck generation and embeddings. In other words, that setting does **not** keep Together.ai for chat while using Ollama only for embeddings.
 >
 > **Important:** If you are migrating from the Ollama embed provider to Together.ai's embed provider, you must **delete the Qdrant `mtg_cards` collection and re-run ingestion**. The embedding models produce different vector dimensions (384-dim `all-minilm` vs 768-dim `BAAI/bge-base-en-v1.5`), so the stored vectors are incompatible.
 
