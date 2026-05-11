@@ -37,9 +37,11 @@ public class OpenAiEmbedService : IEmbedService
         var baseUrl = config["LLM:BaseUrl"] ?? "https://api.together.xyz";
         _http.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
 
-        var apiKey = config["LLM:ApiKey"] ?? "";
-        if (!string.IsNullOrWhiteSpace(apiKey))
-            _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        var apiKey = config["LLM:ApiKey"];
+        if (string.IsNullOrWhiteSpace(apiKey))
+            throw new InvalidOperationException("LLM:ApiKey is required for OpenAiEmbedService.");
+
+        _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 
         var timeoutSeconds = int.TryParse(config["LLM:EmbedTimeoutSeconds"], out var t) && t > 0 ? t : 30;
         _http.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
