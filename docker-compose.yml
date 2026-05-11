@@ -50,7 +50,9 @@ services:
       # (Apple Silicon Metal acceleration doesn't work inside Docker)
       - Ollama__BaseUrl=http://host.docker.internal:11434
       - Ollama__Model=llama3.1:8b
-      # OpenTelemetry — traces sent to Tempo via OTLP gRPC
+      # OpenTelemetry — traces sent to Tempo via OTLP gRPC (local dev).
+      # On Railway set OTEL__Endpoint=http://alloy.railway.internal:4317 so
+      # telemetry flows to the shared forge-observability Alloy collector.
       - OTEL__Endpoint=http://tempo:4317
     depends_on:
       mongodb:
