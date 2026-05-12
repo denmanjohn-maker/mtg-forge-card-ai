@@ -18,16 +18,18 @@ public class CardSearchService
     private readonly QdrantClient _qdrant;
     private readonly IEmbedService _embedder;
     private readonly ILogger<CardSearchService> _logger;
-    private const string Collection = "mtg_cards";
+    private readonly string _collection;
 
     public CardSearchService(
         QdrantClient qdrant,
         IEmbedService embedder,
-        ILogger<CardSearchService> logger)
+        ILogger<CardSearchService> logger,
+        IConfiguration config)
     {
         _qdrant = qdrant;
         _embedder = embedder;
         _logger = logger;
+        _collection = config["Qdrant:CollectionName"] ?? "mtg_cards";
     }
 
     /// <summary>Maps a format name to its Qdrant legality payload field.</summary>
@@ -122,7 +124,7 @@ public class CardSearchService
         _logger.LogInformation("Searching Qdrant for: {Query} (limit={Limit})", req.Query, req.Limit);
 
         var results = await _qdrant.SearchAsync(
-            collectionName: Collection,
+            collectionName: _collection,
             vector: vector,
             filter: filter,
             limit: (ulong)req.Limit,
