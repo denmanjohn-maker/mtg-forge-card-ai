@@ -256,6 +256,8 @@ curl -X POST http://localhost:5000/api/admin/ingest -H "Content-Type: applicatio
 Benchmark spec:
 - `MtgForgeAi.Tests/TestData/deck-candidate-retrieval-benchmark.json`
 - Defines the embedding models being compared, per-model Qdrant collections, query set, relevance labels, selection rule, and regression thresholds.
+- `selection.closeMarginPercent` defines when winner vs runner-up is considered statistically close:  
+  `(winnerNdcg - runnerUpNdcg) / winnerNdcg * 100 <= closeMarginPercent`.
 
 Run bake-off:
 ```bash

@@ -67,7 +67,11 @@ public class DeckCandidateRetrievalBakeoffTests
         var isStatisticallyClose = deltaPct <= benchmark.Selection.CloseMarginPercent;
 
         var selected = benchmark.Candidates.Single(c => c.IsSelectedDefault);
-        Assert.Equal(selected.Name, winner.Name);
+        Assert.True(
+            string.Equals(selected.Name, winner.Name, StringComparison.Ordinal),
+            $"Selected default '{selected.Name}' does not match winner '{winner.Name}'. " +
+            $"Runner-up='{runnerUp.Name}', delta={deltaPct:F2}% (close-margin={benchmark.Selection.CloseMarginPercent:F2}%). " +
+            "Update isSelectedDefault in the benchmark spec if this result is expected.");
 
         Assert.True(
             winner.PrecisionAtK >= benchmark.RegressionThresholds.PrecisionAtK,
@@ -221,7 +225,10 @@ public class DeckCandidateRetrievalBakeoffTests
     {
         public static CandidateAggregate From(string name, List<MetricSet> values)
         {
-            var denom = values.Count == 0 ? 1 : values.Count;
+            if (values.Count == 0)
+                throw new InvalidOperationException($"No benchmark query results were available for candidate '{name}'.");
+
+            var denom = values.Count;
             return new CandidateAggregate(
                 Name: name,
                 PrecisionAtK: values.Sum(v => v.PrecisionAtK) / denom,
