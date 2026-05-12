@@ -36,10 +36,12 @@ public class OpenAiLlmService : ILlmService
 
         _genAiSystem = baseUrl.Contains("together", StringComparison.OrdinalIgnoreCase)
             ? AppTelemetry.SystemTogetherAi
+            : baseUrl.Contains("deepinfra", StringComparison.OrdinalIgnoreCase)
+            ? "deep_infra"
             : "openai_compatible";
     }
 
-    public async Task<string> ChatAsync(
+    public async Task<ChatResult> ChatAsync(
         string systemPrompt,
         string userMessage,
         bool jsonMode = false,
@@ -85,13 +87,17 @@ public class OpenAiLlmService : ILlmService
             var result = await response.Content.ReadFromJsonAsync<ChatCompletionResponse>(JsonOptions, ct)
                 ?? throw new InvalidOperationException("Null response from LLM API");
 
+            var inputTokens  = 0;
+            var outputTokens = 0;
             if (result.Usage is { } usage)
             {
-                activity?.SetTag(AppTelemetry.GenAiUsageInputTokens, usage.PromptTokens);
-                activity?.SetTag(AppTelemetry.GenAiUsageOutputTokens, usage.CompletionTokens);
+                inputTokens  = usage.PromptTokens;
+                outputTokens = usage.CompletionTokens;
+                activity?.SetTag(AppTelemetry.GenAiUsageInputTokens, inputTokens);
+                activity?.SetTag(AppTelemetry.GenAiUsageOutputTokens, outputTokens);
             }
 
-            return result.Choices?.FirstOrDefault()?.Message?.Content ?? "";
+            return new ChatResult(result.Choices?.FirstOrDefault()?.Message?.Content ?? "", inputTokens, outputTokens);
         }
         catch
         {

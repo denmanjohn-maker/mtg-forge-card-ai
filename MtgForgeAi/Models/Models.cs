@@ -24,7 +24,9 @@ public record DeckResponse(
     double EstimatedCost,
     string Reasoning,
     DateTime GeneratedAt,
-    List<string>? ValidationWarnings = null
+    List<string>? ValidationWarnings = null,
+    int InputTokens = 0,
+    int OutputTokens = 0
 );
 
 public record DeckSection(

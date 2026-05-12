@@ -110,22 +110,26 @@ public class DeckGenerationService
             List<DeckSection> sections;
             string? resolvedCommander;
             string reasoning;
+            int totalInputTokens;
+            int totalOutputTokens;
 
             if (isCommander)
             {
-                (sections, resolvedCommander, reasoning) =
+                (sections, resolvedCommander, reasoning, totalInputTokens, totalOutputTokens) =
                     await GenerateCommanderTwoPhaseAsync(
                         req, candidates, priceMap, commanderOracleText, metaSignals, metaStats,
                         detectedThemes, themedNames, ct);
             }
             else
             {
-                var sys  = BuildSystemPrompt(req.Format, !string.IsNullOrWhiteSpace(req.Commander));
-                var user = BuildUserPrompt(req, candidates, commanderOracleText, metaSignals, metaStats,
+                var sys    = BuildSystemPrompt(req.Format, !string.IsNullOrWhiteSpace(req.Commander));
+                var user   = BuildUserPrompt(req, candidates, commanderOracleText, metaSignals, metaStats,
                     detectedThemes, themedNames);
-                var raw  = await _llm.ChatAsync(sys, user, jsonMode: true, ct);
-                _logger.LogInformation("LLM response ({Len} chars)", raw.Length);
-                (sections, resolvedCommander, reasoning) = ParseDeckOutput(raw, req, priceMap);
+                var result = await _llm.ChatAsync(sys, user, jsonMode: true, ct);
+                _logger.LogInformation("LLM response ({Len} chars)", result.Content.Length);
+                (sections, resolvedCommander, reasoning) = ParseDeckOutput(result.Content, req, priceMap);
+                totalInputTokens  = result.InputTokens;
+                totalOutputTokens = result.OutputTokens;
             }
 
             // Step 4: Budget enforcement
@@ -155,7 +159,9 @@ public class DeckGenerationService
                 EstimatedCost:      totalCost,
                 Reasoning:          reasoning,
                 GeneratedAt:        DateTime.UtcNow,
-                ValidationWarnings: allWarnings.Count > 0 ? allWarnings : null
+                ValidationWarnings: allWarnings.Count > 0 ? allWarnings : null,
+                InputTokens:        totalInputTokens,
+                OutputTokens:       totalOutputTokens
             );
 
             activity?.SetTag("deck.card_count",
@@ -416,7 +422,7 @@ public class DeckGenerationService
 
     // ─── Two-Phase Commander Generation ──────────────────────────────────────
 
-    private async Task<(List<DeckSection> Sections, string? Commander, string Reasoning)>
+    private async Task<(List<DeckSection> Sections, string? Commander, string Reasoning, int InputTokens, int OutputTokens)>
         GenerateCommanderTwoPhaseAsync(
             DeckRequest req,
             List<CardSearchResult> candidates,
@@ -436,11 +442,11 @@ public class DeckGenerationService
             Respond ONLY with valid JSON: {"sections":[{"category":"Ramp","cards":[...]},{"category":"Lands","cards":[...]}]}
             """;
 
-        var phase1User = BuildManaBaseUserPrompt(req, candidates, commanderOracleText, metaSignals, detectedThemes, themedNames);
-        var phase1Raw  = await _llm.ChatAsync(phase1System, phase1User, jsonMode: true, ct);
-        _logger.LogInformation("Phase 1 response ({Len} chars)", phase1Raw.Length);
+        var phase1User   = BuildManaBaseUserPrompt(req, candidates, commanderOracleText, metaSignals, detectedThemes, themedNames);
+        var phase1Result = await _llm.ChatAsync(phase1System, phase1User, jsonMode: true, ct);
+        _logger.LogInformation("Phase 1 response ({Len} chars)", phase1Result.Content.Length);
 
-        var phase1Sections = ParseRawToSections(phase1Raw, priceMap);
+        var phase1Sections = ParseRawToSections(phase1Result.Content, priceMap);
         RemoveHallucinations(phase1Sections, priceMap);
 
         var phase1Cost  = phase1Sections.SelectMany(s => s.Cards).Sum(c => c.PriceUsd * c.Quantity);
@@ -460,13 +466,13 @@ public class DeckGenerationService
             {"commander":"Name","reasoning":"...","sections":[{"category":"...","cards":[{"name":"...","quantity":1}]}]}
             """;
 
-        var phase2User = BuildSpellSuiteUserPrompt(
+        var phase2User   = BuildSpellSuiteUserPrompt(
             req, candidates, phase1Sections, remainingSlots, remainingBudget,
             commanderOracleText, metaSignals, metaStats, detectedThemes, themedNames);
-        var phase2Raw = await _llm.ChatAsync(phase2System, phase2User, jsonMode: true, ct);
-        _logger.LogInformation("Phase 2 response ({Len} chars)", phase2Raw.Length);
+        var phase2Result = await _llm.ChatAsync(phase2System, phase2User, jsonMode: true, ct);
+        _logger.LogInformation("Phase 2 response ({Len} chars)", phase2Result.Content.Length);
 
-        var parsed2        = TryDeserializeLlmOutput(phase2Raw);
+        var parsed2        = TryDeserializeLlmOutput(phase2Result.Content);
         var phase2Sections = BuildSectionsFromParsed(parsed2, priceMap);
 
         // Remove hallucinations and deduplicate against phase 1
@@ -496,7 +502,9 @@ public class DeckGenerationService
         allSections.AddRange(phase2Sections);
         var reasoning = parsed2?.Reasoning ?? $"Two-phase Commander: mana base + {req.Theme} spell suite";
 
-        return (allSections, resolvedCommander, reasoning);
+        return (allSections, resolvedCommander, reasoning,
+            phase1Result.InputTokens  + phase2Result.InputTokens,
+            phase1Result.OutputTokens + phase2Result.OutputTokens);
     }
 
     // ─── Phase Prompt Builders ────────────────────────────────────────────────

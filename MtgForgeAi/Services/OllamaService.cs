@@ -30,9 +30,9 @@ public class OllamaLlmService : ILlmService
     }
 
     /// <summary>
-    /// Send a chat completion request to Ollama and return the full response text.
+    /// Send a chat completion request to Ollama and return the response with token usage.
     /// </summary>
-    public async Task<string> ChatAsync(
+    public async Task<ChatResult> ChatAsync(
         string systemPrompt,
         string userMessage,
         bool jsonMode = false,
@@ -87,7 +87,7 @@ public class OllamaLlmService : ILlmService
             if (result.EvalCount > 0)
                 activity?.SetTag(AppTelemetry.GenAiUsageOutputTokens, result.EvalCount);
 
-            return result.Message?.Content ?? "";
+            return new ChatResult(result.Message?.Content ?? "", result.PromptEvalCount, result.EvalCount);
         }
         catch
         {
