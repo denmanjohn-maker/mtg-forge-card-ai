@@ -1,0 +1,120 @@
+{
+  "selection": {
+    "primaryMetric": "ndcgAtK",
+    "closeMarginPercent": 3.0
+  },
+  "regressionThresholds": {
+    "precisionAtK": 0.12,
+    "recallAtK": 0.18,
+    "ndcgAtK": 0.18,
+    "typeDiversityAtK": 4
+  },
+  "evaluation": {
+    "k": 40
+  },
+  "candidates": [
+    {
+      "name": "bge-m3",
+      "embedModel": "BAAI/bge-m3",
+      "qdrantCollection": "mtg_cards_bge_m3",
+      "isSelectedDefault": true
+    },
+    {
+      "name": "bge-large-en-v1.5",
+      "embedModel": "BAAI/bge-large-en-v1.5",
+      "qdrantCollection": "mtg_cards_bge_large_en_v1_5",
+      "isSelectedDefault": false
+    }
+  ],
+  "queries": [
+    {
+      "name": "commander-sacrifice-reanimator",
+      "request": {
+        "format": "commander",
+        "theme": "sacrifice and reanimation",
+        "budget": 150.0,
+        "powerLevel": 7,
+        "commander": "Meren of Clan Nel Toth",
+        "colorIdentity": [ "B", "G" ],
+        "extraContext": "value engine and graveyard recursion",
+        "useMetaSignals": false
+      },
+      "relevanceByCardName": {
+        "Viscera Seer": 3,
+        "Skullclamp": 3,
+        "Victimize": 3,
+        "Ashnod's Altar": 3,
+        "Phyrexian Altar": 3,
+        "Reanimate": 2,
+        "Animate Dead": 2,
+        "Living Death": 2,
+        "Sakura-Tribe Elder": 2,
+        "Eternal Witness": 2,
+        "Grave Pact": 2,
+        "Dictate of Erebos": 2,
+        "Blood Artist": 2,
+        "Zulaport Cutthroat": 2,
+        "Evolutionary Leap": 1,
+        "Yawgmoth, Thran Physician": 3
+      }
+    },
+    {
+      "name": "modern-izzet-spells",
+      "request": {
+        "format": "modern",
+        "theme": "tempo spells with cheap cantrips",
+        "budget": 400.0,
+        "powerLevel": 8,
+        "commander": null,
+        "colorIdentity": [ "U", "R" ],
+        "extraContext": "efficient interaction and threat density",
+        "useMetaSignals": false
+      },
+      "relevanceByCardName": {
+        "Lightning Bolt": 3,
+        "Counterspell": 3,
+        "Consider": 2,
+        "Expressive Iteration": 3,
+        "Spell Pierce": 2,
+        "Unholy Heat": 2,
+        "Murktide Regent": 3,
+        "Dragon's Rage Channeler": 3,
+        "Mishra's Bauble": 2,
+        "Preordain": 2,
+        "Flame of Anor": 2,
+        "Archmage's Charm": 2,
+        "Steam Vents": 1,
+        "Spirebluff Canal": 1,
+        "Flooded Strand": 1,
+        "Scalding Tarn": 1
+      }
+    },
+    {
+      "name": "standard-azorius-control",
+      "request": {
+        "format": "standard",
+        "theme": "azorius control with sweepers and card advantage",
+        "budget": 300.0,
+        "powerLevel": 7,
+        "commander": null,
+        "colorIdentity": [ "W", "U" ],
+        "extraContext": "slow game, stabilize and win late",
+        "useMetaSignals": false
+      },
+      "relevanceByCardName": {
+        "Sunfall": 3,
+        "No More Lies": 3,
+        "Three Steps Ahead": 2,
+        "Temporary Lockdown": 2,
+        "Get Lost": 2,
+        "Memory Deluge": 2,
+        "Deduce": 1,
+        "Restless Anchorage": 1,
+        "Destroy Evil": 1,
+        "Depopulate": 2,
+        "The Wandering Emperor": 3,
+        "March of Otherworldly Light": 2
+      }
+    }
+  ]
+}

@@ -249,6 +249,31 @@ curl -X DELETE http://localhost:6333/collections/mtg_cards
 curl -X POST http://localhost:5000/api/admin/ingest -H "Content-Type: application/json" -d '{}'
 ```
 
+### Retrieval-quality bake-off (deck candidate search)
+
+`best` is defined as retrieval quality for `CardSearchService.GetDeckCandidatesAsync` using fixed benchmark queries and graded relevance judgments.
+
+Benchmark spec:
+- `MtgForgeAi.Tests/TestData/deck-candidate-retrieval-benchmark.json`
+- Defines the embedding models being compared, per-model Qdrant collections, query set, relevance labels, selection rule, and regression thresholds.
+- `selection.closeMarginPercent` defines when winner vs runner-up is considered statistically close:  
+  `(winnerNdcg - runnerUpNdcg) / winnerNdcg * 100 <= closeMarginPercent`.
+
+Run bake-off:
+```bash
+RUN_RETRIEVAL_BENCHMARK=1 \
+BENCH_LLM_API_KEY=your-deepinfra-key \
+BENCH_QDRANT_HOST=localhost \
+BENCH_QDRANT_PORT=6334 \
+dotnet test MtgForgeAi.Tests --filter "FullyQualifiedName~DeckCandidateRetrievalBakeoffTests"
+```
+
+Current selected default embed model:
+- `BAAI/bge-m3` (configured as `LLM__EmbedModel`)
+- Runner-up fallback is kept in the benchmark spec and considered only when the winner is within the configured closeness margin.
+
+> Each candidate should be ingested into its own Qdrant collection before running the bake-off (same card corpus, different embedding model). Search collection is configurable via `Qdrant__CollectionName`.
+
 ---
 
 ## Project Structure
