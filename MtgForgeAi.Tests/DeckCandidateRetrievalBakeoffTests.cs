@@ -37,7 +37,7 @@ public class DeckCandidateRetrievalBakeoffTests
         foreach (var candidate in benchmark.Candidates)
         {
             var servicesConfig = BuildConfig(baseUrl, apiKey!, candidate.EmbedModel, candidate.QdrantCollection);
-            var http = new HttpClient();
+            using var http = new HttpClient();
             var embed = new OpenAiEmbedService(http, servicesConfig, NullLogger<OpenAiEmbedService>.Instance);
             var search = new CardSearchService(qdrant, embed, NullLogger<CardSearchService>.Instance, servicesConfig);
 
@@ -135,10 +135,10 @@ public class DeckCandidateRetrievalBakeoffTests
                 : 0;
 
             if (rel > 0)
+            {
                 hits++;
-
-            if (rel > 0)
                 dcg += ((1 << rel) - 1) / Math.Log2(i + 2);
+            }
 
             var bucket = GetTypeBucket(card.TypeLine);
             if (!string.IsNullOrWhiteSpace(bucket))

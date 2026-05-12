@@ -255,7 +255,7 @@ curl -X POST http://localhost:5000/api/admin/ingest -H "Content-Type: applicatio
 
 Benchmark spec:
 - `MtgForgeAi.Tests/TestData/deck-candidate-retrieval-benchmark.json`
-- Includes candidate embed models, per-model Qdrant collections, query set, relevance labels, selection rule, and regression thresholds.
+- Defines the embedding models being compared, per-model Qdrant collections, query set, relevance labels, selection rule, and regression thresholds.
 
 Run bake-off:
 ```bash
