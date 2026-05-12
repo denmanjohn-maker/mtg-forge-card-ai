@@ -150,6 +150,8 @@ curl -X POST http://localhost:5000/api/decks/generate \
   }'
 ```
 
+When present, LLM token counts are returned in the response headers `X-GenAI-Input-Tokens` and `X-GenAI-Output-Tokens` so the JSON deck payload stays backward-compatible.
+
 ---
 
 ## Configuration Reference

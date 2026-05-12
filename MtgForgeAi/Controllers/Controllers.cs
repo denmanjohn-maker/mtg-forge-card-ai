@@ -11,6 +11,8 @@ public class DecksController : ControllerBase
 {
     private readonly DeckGenerationService _generator;
     private readonly MongoService _mongo;
+    internal const string InputTokenHeaderName = "X-GenAI-Input-Tokens";
+    internal const string OutputTokenHeaderName = "X-GenAI-Output-Tokens";
 
     private static readonly HashSet<string> ValidFormats = new(StringComparer.OrdinalIgnoreCase)
         { "commander", "standard", "modern", "legacy", "pioneer", "pauper", "vintage" };
@@ -32,7 +34,17 @@ public class DecksController : ControllerBase
             return BadRequest($"Invalid format '{req.Format}'. Valid formats: {string.Join(", ", ValidFormats)}");
 
         var deck = await _generator.GenerateDeckAsync(req, ct);
+        ApplyGenerationUsageHeaders(Response, deck);
         return Ok(deck);
+    }
+
+    internal static void ApplyGenerationUsageHeaders(HttpResponse response, DeckResponse deck)
+    {
+        if (deck.InputTokens > 0)
+            response.Headers[InputTokenHeaderName] = deck.InputTokens.ToString();
+
+        if (deck.OutputTokens > 0)
+            response.Headers[OutputTokenHeaderName] = deck.OutputTokens.ToString();
     }
 
     /// <summary>Get all saved decks</summary>

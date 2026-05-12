@@ -1,5 +1,6 @@
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
+using System.Text.Json.Serialization;
 
 namespace MtgForgeAi.Models;
 
@@ -25,8 +26,8 @@ public record DeckResponse(
     string Reasoning,
     DateTime GeneratedAt,
     List<string>? ValidationWarnings = null,
-    int InputTokens = 0,
-    int OutputTokens = 0
+    [property: JsonIgnore] int InputTokens = 0,
+    [property: JsonIgnore] int OutputTokens = 0
 );
 
 public record DeckSection(
